@@ -1,6 +1,12 @@
 // =====================================================================
 // 太綺戰情室 — 後端 API（Render 部署用）
 // 取代原本的 Google Apps Script，資料庫改用 Neon (Postgres)
+// ---------------------------------------------------------------------
+// 2026-09-23 修正版
+//  1. CORS 設定容錯：允許多個來源、自動去掉結尾斜線與路徑、對不上時寫日誌
+//  2. /api/data 未登入改為「白名單」回傳，避免資料表新增敏感欄位就外洩
+//  3. JWT_SECRET 不再有預設值（預設值等於任何人都能偽造管理員 token）
+//  4. 新增 /api/health 供自我診斷（只回布林值與來源設定，不回任何密鑰）
 // =====================================================================
 const express = require('express');
 const cors = require('cors');
@@ -10,20 +16,102 @@ const { Pool } = require('pg');
 const app = express();
 app.use(express.json({ limit: '5mb' }));
 
-const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
-app.use(cors({ origin: ALLOWED_ORIGIN }));
+// ---------------------------------------------------------------------
+// 啟動前檢查：密鑰沒設就不要啟動
+// ---------------------------------------------------------------------
+// 原本 JWT_SECRET 落到預設值 'change-me-please' 時，任何人都能自己簽一個
+// { authorized: true } 的 token，直接取得完整寫入權限，密碼那關等於不存在。
+// 寧可啟動失敗讓你在 Render 日誌看到，也不要安靜地開著後門。
+const JWT_SECRET = process.env.JWT_SECRET;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+
+const fatal = [];
+if (!process.env.DATABASE_URL) fatal.push('DATABASE_URL（Neon 連線字串）');
+if (!ADMIN_PASSWORD) fatal.push('ADMIN_PASSWORD（登入密碼）');
+if (!JWT_SECRET) fatal.push('JWT_SECRET（token 簽章密鑰，請用長隨機字串）');
+else if (JWT_SECRET.length < 16) fatal.push('JWT_SECRET 太短，請用至少 16 字元的隨機字串');
+else if (/^(change-me|changeme|secret|password|test)/i.test(JWT_SECRET)) {
+  fatal.push('JWT_SECRET 看起來是預設或範例值，請換成真正的隨機字串');
+}
+if (fatal.length) {
+  console.error('🚨 缺少必要的環境變數，伺服器不啟動：');
+  fatal.forEach((m) => console.error('   - ' + m));
+  console.error('   設定位置：Render → 該服務 → Environment');
+  console.error('   產生 JWT_SECRET 可用：openssl rand -base64 32');
+  process.exit(1);
+}
+
+// ---------------------------------------------------------------------
+// CORS
+// ---------------------------------------------------------------------
+// 瀏覽器送出的 Origin 標頭只有「scheme + 網域（+ 埠號）」，永遠不含路徑，
+// 例如 https://workersss456-rgb.github.io
+// 所以環境變數如果填成完整頁面網址（帶 /taichi-situation-room/）或帶結尾
+// 斜線，字串比對永遠對不上，後端就不會送 Access-Control-Allow-Origin，
+// 瀏覽器會擋掉回應，前端只看得到 "Failed to fetch"。
+// 這裡把常見的填法都正規化掉，並在對不上時把實際收到的 Origin 寫進日誌。
+function normalizeOrigin(value) {
+  const s = String(value || '').trim();
+  if (!s || s === '*') return s;
+  try {
+    // 有路徑也沒關係，URL 解析後只取 origin
+    return new URL(s).origin;
+  } catch (e) {
+    return s.replace(/\/+$/, '');
+  }
+}
+
+const rawAllowed = process.env.ALLOWED_ORIGIN || '*';
+const allowAll = rawAllowed.trim() === '*';
+const ALLOWED_ORIGINS = allowAll
+  ? []
+  : rawAllowed.split(',').map(normalizeOrigin).filter(Boolean);
+
+if (allowAll) {
+  console.warn('⚠️  ALLOWED_ORIGIN 未設定，目前允許任何來源。正式環境請設為前端網域，例如 https://workersss456-rgb.github.io');
+} else {
+  console.log('✅ 允許的前端來源：' + ALLOWED_ORIGINS.join(', '));
+  if (rawAllowed !== ALLOWED_ORIGINS.join(',')) {
+    console.log('   （已自動正規化，原始設定值為：' + rawAllowed + '）');
+  }
+}
+
+const seenRejected = new Set();
+app.use(cors({
+  origin(origin, callback) {
+    // 沒有 Origin 的請求（curl、Render 健康檢查、同源請求）一律放行
+    if (!origin) return callback(null, true);
+    if (allowAll) return callback(null, true);
+    if (ALLOWED_ORIGINS.includes(normalizeOrigin(origin))) return callback(null, true);
+    // 對不上時留一筆日誌，這是這類問題最快的線索
+    if (!seenRejected.has(origin)) {
+      seenRejected.add(origin);
+      console.warn(`🚫 CORS 拒絕來源 "${origin}"。目前允許：${ALLOWED_ORIGINS.join(', ') || '（無）'}`);
+      console.warn('   若這是你的前端，請把 ALLOWED_ORIGIN 改成上面引號裡那一串（不含路徑、不含結尾斜線）。');
+    }
+    // 回 false 而不是丟錯：瀏覽器照樣會擋，但不會在 Render 留下一堆 500
+    return callback(null, false);
+  },
+  methods: ['GET', 'POST', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  maxAge: 86400,
+}));
+// 註：不要寫 app.options('*', cors())。
+// cors() 掛在 app.use 上時本來就會攔下並回應 OPTIONS 預檢請求，
+// 而 Express 5 的路由器（path-to-regexp v8）不接受裸的 '*'，寫了會讓服務啟動失敗。
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false } // Neon 需要 SSL
+  ssl: /@(localhost|127\.0\.0\.1)[:/]/.test(process.env.DATABASE_URL || '')
+    ? false
+    : { rejectUnauthorized: false },   // Neon 需要 SSL
 });
-
-const JWT_SECRET = process.env.JWT_SECRET || 'change-me-please';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // 明碼存在 Render 環境變數即可，不落地到程式碼
 
 // ---------------------------------------------------------------------
 // 每張表的設定：表名 / 主鍵欄位 / 產生新 ID 用的前綴 / 允許寫入的欄位
 // ---------------------------------------------------------------------
+// 注意：cols 同時也是「未登入時允許讀取」的白名單。
+// 資料表裡沒列在這裡的欄位（例如之後新增的銀行帳號），未登入一律不回傳。
 const TABLES = {
   '案場主檔': {
     idCol: '案場ID', prefix: 'P', pad: 4,
@@ -40,7 +128,7 @@ const TABLES = {
   '點工人員主檔': {
     idCol: '人員ID', prefix: 'W', pad: 4,
     cols: ['姓名','身分證字號','建立日期','備註'],
-    sensitiveCols: ['身分證字號'] // 未登入時遮蔽
+    maskedCols: ['身分證字號']   // 在白名單內，但未登入時顯示為 ***
   },
   '月度請款': {
     idCol: '請款ID', prefix: 'B', pad: 4,
@@ -97,13 +185,19 @@ async function currentVersion(client) {
   return rows[0] ? rows[0].value : '1';
 }
 
-function maskSensitive(sheetName, rows, isAuthorized) {
+// 未登入時的可見範圍：白名單制。
+// 原本用 SELECT * 再事後遮蔽，只要資料表多一個敏感欄位就會安靜外洩；
+// 改成「只回 cols 列出的欄位」，預設拒絕，加新欄位不會漏。
+function publicView(sheetName, rows, isAuthorized) {
+  if (isAuthorized) return rows;
   const cfg = TABLES[sheetName];
-  if (!cfg || !cfg.sensitiveCols || isAuthorized) return rows;
-  return rows.map(r => {
-    const copy = { ...r };
-    cfg.sensitiveCols.forEach(c => { if (copy[c]) copy[c] = '***'; });
-    return copy;
+  const allow = new Set([cfg.idCol, ...cfg.cols]);
+  const masked = cfg.maskedCols || [];
+  return rows.map((r) => {
+    const out = {};
+    for (const k of Object.keys(r)) if (allow.has(k)) out[k] = r[k];
+    masked.forEach((c) => { if (out[c]) out[c] = '***'; });
+    return out;
   });
 }
 
@@ -115,11 +209,44 @@ async function logChange(client, actor, action, sheetName, rowId, note) {
 }
 
 // ---------------------------------------------------------------------
+// 自我診斷：只回設定「有沒有設」與允許來源，不回任何密鑰內容
+// ---------------------------------------------------------------------
+app.get('/api/health', async (req, res) => {
+  const out = {
+    status: 'ok',
+    time: new Date().toISOString(),
+    config: {
+      DATABASE_URL: !!process.env.DATABASE_URL,
+      ADMIN_PASSWORD: !!ADMIN_PASSWORD,
+      JWT_SECRET: !!JWT_SECRET,
+      ALLOWED_ORIGIN: allowAll ? '*（允許任何來源）' : ALLOWED_ORIGINS.join(', '),
+    },
+    yourOrigin: req.headers.origin || '（這個請求沒有 Origin 標頭）',
+  };
+  if (req.headers.origin) {
+    out.originAllowed = allowAll || ALLOWED_ORIGINS.includes(normalizeOrigin(req.headers.origin));
+    if (!out.originAllowed) {
+      out.hint = `請把 ALLOWED_ORIGIN 設為 "${normalizeOrigin(req.headers.origin)}"（不含路徑、不含結尾斜線）`;
+    }
+  }
+  try {
+    const client = await pool.connect();
+    try {
+      await client.query('SELECT 1');
+      out.database = 'connected';
+    } finally { client.release(); }
+  } catch (err) {
+    out.status = 'degraded';
+    out.database = 'error: ' + err.message;
+  }
+  res.json(out);
+});
+
+// ---------------------------------------------------------------------
 // 登入：單一管理密碼（在 Render 環境變數 ADMIN_PASSWORD 設定）
 // ---------------------------------------------------------------------
 app.post('/api/login', (req, res) => {
   const { password } = req.body || {};
-  if (!ADMIN_PASSWORD) return res.status(500).json({ status: 'error', message: '伺服器尚未設定 ADMIN_PASSWORD' });
   if (password !== ADMIN_PASSWORD) return res.status(401).json({ status: 'error', message: '密碼錯誤' });
   const token = jwt.sign({ authorized: true }, JWT_SECRET, { expiresIn: '30d' });
   res.json({ status: 'ok', token, isAuthorized: true, expiresIn: 30 * 24 * 3600 });
@@ -137,7 +264,7 @@ app.get('/api/data', async (req, res) => {
     for (const sheetName of Object.keys(TABLES)) {
       const { rows } = await client.query(`SELECT * FROM ${q(sheetName)} ORDER BY "更新時間" ASC NULLS FIRST`);
       const cleaned = rows.map(({ 更新時間, ...rest }) => rest);
-      out[sheetName] = maskSensitive(sheetName, cleaned, isAuthorized);
+      out[sheetName] = publicView(sheetName, cleaned, isAuthorized);
     }
     out['_serverVersion'] = await currentVersion(client);
     res.json(out);
