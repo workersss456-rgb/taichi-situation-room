@@ -6,9 +6,9 @@
 <title>案場成本控制中心 V1</title>
 <style>
   :root {
-    --bg:#0b1120; --panel:#161e30; --border:#293449; --ink:#f1f5f9; --dim:#94a3b8; --dimmer:#64748b;
-    --blue:#3b82f6; --green:#10b981; --amber:#f59e0b; --red:#ef4444; --purple:#a855f7; --teal:#14b8a6;
-    --card:#1e293b;
+    --bg:#f4f6fb; --panel:#ffffff; --border:#dbe2ee; --ink:#1c2534; --dim:#5b6b84; --dimmer:#8492a6;
+    --blue:#2563eb; --green:#0f9d68; --amber:#b56a00; --red:#d92d3f; --purple:#8b3ee0; --teal:#0f8a86;
+    --card:#ffffff; --field:#ffffff; --shadow:0 1px 3px rgba(28,37,52,0.06);
   }
   *{box-sizing:border-box;margin:0;padding:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"PingFang TC","Microsoft JhengHei",sans-serif}
   body{background:var(--bg);color:var(--ink);padding:20px;font-size:14px}
@@ -49,18 +49,19 @@
   .kpi-card.purple{border-left-color:var(--purple)}
   .kpi-card.teal{border-left-color:var(--teal)}
   .kpi-label{font-size:12.5px;color:var(--dim);font-weight:600}
-  .kpi-value{font-size:22px;font-weight:800;margin-top:4px;color:#fff;line-height:1.25;word-break:break-word}
+  .kpi-card{box-shadow:var(--shadow)}
+  .kpi-value{font-size:22px;font-weight:800;margin-top:4px;color:var(--ink);line-height:1.25;word-break:break-word}
   .kpi-value .unit{font-size:13px;font-weight:500;color:var(--dim);margin-left:4px}
-  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:16px}
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px;margin-bottom:16px;box-shadow:var(--shadow)}
   .card-head{padding:12px 16px;font-size:15px;font-weight:700;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap}
   .card-body{padding:14px 16px;overflow-x:auto}
   table{width:100%;border-collapse:collapse;font-size:13px}
   table th{padding:8px 6px;text-align:left;color:var(--dim);font-weight:700;border-bottom:2px solid var(--border);white-space:nowrap;font-size:12.5px}
-  table td{padding:7px 6px;border-bottom:1px solid rgba(255,255,255,0.05);color:#cbd5e1;vertical-align:middle}
-  table tr:hover td{background:rgba(255,255,255,0.02)}
-  input[type=text],input[type=number],input[type=date],input[type=month],select,textarea{background:#0b1120;border:1px solid var(--border);color:var(--ink);padding:6px 8px;border-radius:5px;font-size:13px;width:100%;outline:none;font-family:inherit}
-  input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(59,130,246,0.2)}
-  select option{background:#0b1120}
+  table td{padding:9px 6px;border-bottom:1px solid rgba(28,37,52,0.08);color:var(--ink);vertical-align:middle}
+  table tr:hover td{background:rgba(37,99,235,0.04)}
+  input[type=text],input[type=number],input[type=date],input[type=month],select,textarea{background:var(--field);border:1px solid var(--border);color:var(--ink);padding:7px 9px;border-radius:5px;font-size:13px;width:100%;outline:none;font-family:inherit}
+  input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 2px rgba(37,99,235,0.15)}
+  select option{background:#ffffff}
   textarea{resize:vertical;min-height:60px}
   label{font-size:12px;color:var(--dim);font-weight:600;display:block;margin-bottom:4px}
   .form-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
@@ -71,9 +72,9 @@
   .link-btn{background:none;border:none;color:var(--blue);cursor:pointer;text-decoration:underline;font-size:13px;font-weight:600;padding:0}
   .modal-bg{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:100;justify-content:center;align-items:center;padding:20px}
   .modal{background:var(--card);border:1px solid var(--border);border-radius:12px;width:100%;max-width:1000px;max-height:90vh;display:flex;flex-direction:column;overflow:hidden}
-  .modal-head{padding:14px 18px;border-bottom:1px solid var(--border);background:#0b1120;display:flex;justify-content:space-between;align-items:center}
+  .modal-head{padding:14px 18px;border-bottom:1px solid var(--border);background:var(--bg);display:flex;justify-content:space-between;align-items:center}
   .modal-body{padding:16px 18px;overflow-y:auto;flex:1}
-  .modal-foot{padding:12px 18px;border-top:1px solid var(--border);background:#0b1120;display:flex;justify-content:flex-end;gap:8px}
+  .modal-foot{padding:12px 18px;border-top:1px solid var(--border);background:var(--bg);display:flex;justify-content:flex-end;gap:8px}
   .subtabs{display:flex;gap:2px;border-bottom:1px solid var(--border);margin-bottom:14px;flex-wrap:wrap}
   .subtab-btn{background:none;border:none;color:var(--dim);padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;border-bottom:2px solid transparent}
   .subtab-btn.active{color:var(--ink);border-bottom-color:var(--blue)}
@@ -84,12 +85,12 @@
   .filter-row select,.filter-row input{width:auto;min-width:120px}
   .ranking-bar{display:flex;align-items:center;gap:10px;padding:6px 0}
   .ranking-name{min-width:140px;font-weight:600}
-  .ranking-track{flex:1;background:rgba(255,255,255,0.06);height:18px;border-radius:9px;overflow:hidden;position:relative}
+  .ranking-track{flex:1;background:rgba(28,37,52,0.07);height:18px;border-radius:9px;overflow:hidden;position:relative}
   .ranking-fill{height:100%;transition:width 0.3s}
   .ranking-fill.profit{background:linear-gradient(90deg,var(--green),#059669)}
   .ranking-fill.loss{background:linear-gradient(90deg,var(--red),#dc2626)}
   .ranking-value{min-width:130px;text-align:right;font-family:monospace;font-weight:700}
-  .stat-chip{display:inline-flex;align-items:center;gap:5px;background:#0b1120;border:1px solid var(--border);border-radius:16px;padding:5px 12px;font-size:12.5px;margin-right:6px;margin-bottom:6px}
+  .stat-chip{display:inline-flex;align-items:center;gap:5px;background:var(--bg);border:1px solid var(--border);border-radius:16px;padding:5px 12px;font-size:12.5px;margin-right:6px;margin-bottom:6px}
   .stat-chip b{color:var(--ink)}
   .money-pos{color:var(--green);font-weight:700}
   .money-neg{color:var(--red);font-weight:700}
@@ -97,10 +98,43 @@
   .expense-type-tabs{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap}
   .expense-type-btn{padding:6px 12px;background:var(--panel);border:1px solid var(--border);color:var(--dim);border-radius:6px;font-size:12.5px;cursor:pointer;font-weight:600}
   .expense-type-btn.active{background:var(--blue);color:#fff;border-color:var(--blue)}
-  .contract-item{background:#0b1120;border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px}
+  .contract-item{background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;gap:12px}
   .contract-item.main{border-color:var(--blue)}
   .contract-item .item-type{display:inline-block;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;background:rgba(59,130,246,0.15);color:var(--blue);margin-right:8px}
   .contract-item .item-type.add{background:rgba(168,85,247,0.15);color:var(--purple)}
+
+  /* ---------------- 手機 / 小螢幕優化 ---------------- */
+  @media (max-width: 900px) {
+    .kpi-grid{grid-template-columns:repeat(2,1fr)}
+    .form-grid{grid-template-columns:1fr 1fr}
+    .form-grid .half{grid-column:1/-1}
+  }
+  @media (max-width: 640px) {
+    body{padding:10px;font-size:13.5px}
+    header{gap:10px}
+    h1{font-size:19px}
+    .actions{width:100%;justify-content:space-between}
+    .kpi-grid,.kpi-grid[style]{grid-template-columns:1fr 1fr!important;gap:8px}
+    .kpi-value{font-size:18px}
+    .card-head{font-size:14px}
+    .tabs{gap:0;overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+    .tab-btn{padding:10px 12px;font-size:13px;white-space:nowrap}
+    .subtabs{overflow-x:auto;flex-wrap:nowrap;-webkit-overflow-scrolling:touch}
+    .subtab-btn{white-space:nowrap}
+    .form-grid{grid-template-columns:1fr}
+    .form-grid .half,.form-grid .full{grid-column:1/-1}
+    .modal-bg{padding:0;align-items:flex-end}
+    .modal{max-width:100%!important;width:100%;max-height:94vh;border-radius:14px 14px 0 0}
+    .modal-head h2{font-size:16px}
+    table{font-size:12px}
+    table th,table td{padding:7px 5px}
+    .filter-row{gap:8px}
+    .filter-row select,.filter-row input{min-width:0;flex:1}
+    .ranking-name{min-width:90px;font-size:12.5px}
+    .ranking-value{min-width:100px;font-size:12px}
+    .contract-item{flex-direction:column;align-items:flex-start;gap:8px}
+    input[type=text],input[type=number],input[type=date],input[type=month],select,textarea{font-size:16px} /* 避免 iOS 自動放大畫面 */
+  }
 </style>
 </head>
 <body>
@@ -116,7 +150,7 @@
     </div>
   </header>
 
-  <div id="unauth-banner" class="banner banner-warn" style="display:none">🔒 目前未登入授權帳號，可瀏覽但不能編輯，敏感欄位（身分證字號）已由伺服器隱藏</div>
+  <div id="unauth-banner" class="banner banner-warn" style="display:none">🔒 目前未登入，可瀏覽但不能編輯，敏感欄位（身分證字號）已由伺服器隱藏</div>
   <div id="conflict-banner" class="banner banner-error" style="display:none"></div>
   <div id="sync-bar" class="sync-bar">尚未同步</div>
 
@@ -250,12 +284,11 @@
 // =====================================================================
 // 全域狀態
 // =====================================================================
-const CLOUD_API_URL = <?!= JSON.stringify(scriptUrl) ?>;
-const OAUTH_CLIENT_ID = "830777655608-sc5t8vc9s9u31gtbkh1mivhttancopbi.apps.googleusercontent.com";
-const SERVER_AUTH_RESULT = <?!= JSON.stringify(authResult) ?>;
+// 👉 部署 Render 後端完成後，把網址貼在這裡（結尾不要加斜線）
+const API_BASE_URL = "https://YOUR-RENDER-SERVICE.onrender.com";
 const AUTH_KEY = 'cost_center_auth_v1';
 
-let currentUserEmail = null, isAuthorized = false, googleAccessToken = null;
+let isAuthorized = false, authToken = null;
 let serverDataVersion = '0';
 
 // 資料快取（從後端 GET 拉來的）
@@ -274,54 +307,55 @@ let subEditContext = null; // { sheetName, existingRow, projectId, callback }
 // =====================================================================
 // 登入 & 身分驗證
 // =====================================================================
-function isOAuthConfigured() { return OAUTH_CLIENT_ID && OAUTH_CLIENT_ID.endsWith('.apps.googleusercontent.com'); }
-function isCloudConfigured() { return CLOUD_API_URL && CLOUD_API_URL.startsWith('http'); }
+function isCloudConfigured() { return API_BASE_URL && API_BASE_URL.startsWith('http') && !API_BASE_URL.includes('YOUR-RENDER-SERVICE'); }
 
 function renderLoginArea() {
   const area = document.getElementById('login-area');
-  if (!isOAuthConfigured()) { area.innerHTML = '<span class="badge badge-dim">未設定登入</span>'; return; }
-  if (currentUserEmail) {
-    area.innerHTML = `<span class="badge ${isAuthorized ? 'badge-ok' : 'badge-warn'}">${isAuthorized ? '✅' : '⚠️'} ${escapeHtml(currentUserEmail)}</span> <button class="btn btn-dark btn-sm" onclick="signOut()">登出</button>`;
+  if (!isCloudConfigured()) { area.innerHTML = '<span class="badge badge-warn">⚠️ 尚未設定後端網址</span>'; return; }
+  if (isAuthorized) {
+    area.innerHTML = '<span class="badge badge-ok">✅ 已登入（可編輯）</span> <button class="btn btn-dark btn-sm" onclick="signOut()">登出</button>';
   } else {
-    area.innerHTML = '<button class="btn btn-google btn-sm" onclick="signIn()">🔐 使用 Google 帳號登入</button>';
+    area.innerHTML = `
+      <input type="password" id="login-password" placeholder="管理密碼" style="width:140px" onkeydown="if(event.key==='Enter')doLogin()">
+      <button class="btn btn-primary btn-sm" onclick="doLogin()">🔐 登入</button>`;
   }
-  document.getElementById('unauth-banner').style.display = (currentUserEmail && !isAuthorized) ? 'flex' : 'none';
+  document.getElementById('unauth-banner').style.display = !isAuthorized ? 'flex' : 'none';
 }
 
-function signIn() {
-  const scope = encodeURIComponent('email profile');
-  const url = 'https://accounts.google.com/o/oauth2/v2/auth?client_id=' + encodeURIComponent(OAUTH_CLIENT_ID) + '&redirect_uri=' + encodeURIComponent(CLOUD_API_URL) + '&response_type=code&access_type=online&scope=' + scope + '&include_granted_scopes=true&prompt=select_account';
-  window.top.location.href = url;
+async function doLogin() {
+  const pwInput = document.getElementById('login-password');
+  const password = pwInput ? pwInput.value : '';
+  if (!password) return;
+  try {
+    const res = await fetch(API_BASE_URL + '/api/login', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password })
+    });
+    const result = await res.json();
+    if (result.status !== 'ok') { alert('登入失敗：' + (result.message || '密碼錯誤')); return; }
+    applyAuth(true, result.token, result.expiresIn);
+    setSync('✅ 已登入');
+    await reloadFromCloud(false);
+  } catch (err) { alert('登入失敗：' + err.message); }
 }
+
 function signOut() {
-  currentUserEmail = null; isAuthorized = false; googleAccessToken = null;
+  isAuthorized = false; authToken = null;
   try { localStorage.removeItem(AUTH_KEY); } catch(e) {}
-  renderLoginArea(); renderAll();
+  renderLoginArea(); reloadFromCloud(false);
   setSync('已登出');
 }
 
-function applyAuth(email, authorized, token, expiresIn) {
-  currentUserEmail = email; isAuthorized = authorized; googleAccessToken = token;
-  try { localStorage.setItem(AUTH_KEY, JSON.stringify({ email, isAuthorized: authorized, accessToken: token, expiresAt: Date.now() + (Number(expiresIn || 3600) - 60) * 1000 })); } catch(e) {}
+function applyAuth(authorized, token, expiresIn) {
+  isAuthorized = authorized; authToken = token;
+  try { localStorage.setItem(AUTH_KEY, JSON.stringify({ isAuthorized: authorized, accessToken: token, expiresAt: Date.now() + (Number(expiresIn || 3600) - 60) * 1000 })); } catch(e) {}
   renderLoginArea();
 }
 
 function initAuth() {
-  if (SERVER_AUTH_RESULT && SERVER_AUTH_RESULT.loggedIn) {
-    applyAuth(SERVER_AUTH_RESULT.email, SERVER_AUTH_RESULT.isAuthorized, SERVER_AUTH_RESULT.accessToken, SERVER_AUTH_RESULT.expiresIn);
-    setSync(SERVER_AUTH_RESULT.isAuthorized ? ('✅ 已登入 ' + SERVER_AUTH_RESULT.email) : ('已登入但無編輯權限：' + SERVER_AUTH_RESULT.email));
-    try { history.replaceState(null, '', CLOUD_API_URL); } catch(e) {}
-    return;
-  }
-  if (SERVER_AUTH_RESULT && SERVER_AUTH_RESULT.error) {
-    setSync('⚠️ 登入失敗：' + SERVER_AUTH_RESULT.error, true);
-    try { history.replaceState(null, '', CLOUD_API_URL); } catch(e) {}
-    return;
-  }
   try {
     const saved = JSON.parse(localStorage.getItem(AUTH_KEY) || 'null');
     if (saved && saved.expiresAt > Date.now()) {
-      currentUserEmail = saved.email; isAuthorized = saved.isAuthorized; googleAccessToken = saved.accessToken;
+      isAuthorized = saved.isAuthorized; authToken = saved.accessToken;
     } else if (saved) { localStorage.removeItem(AUTH_KEY); }
   } catch(e) {}
   renderLoginArea();
@@ -347,15 +381,18 @@ function switchTab(id) {
 // 雲端 API 呼叫
 // =====================================================================
 async function callApi(action, payload) {
-  const body = Object.assign({ action, _authToken: googleAccessToken, _clientVersion: serverDataVersion }, payload || {});
-  const res = await fetch(CLOUD_API_URL, {
+  const body = Object.assign({ action, _authToken: authToken, _clientVersion: serverDataVersion }, payload || {});
+  const res = await fetch(API_BASE_URL + '/api/action', {
     method: 'POST',
-    headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+    headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + (authToken || '') },
     body: JSON.stringify(body)
   });
   const result = await res.json();
   if (result.status === 'unauthorized') {
     alert('後端拒絕：' + result.message);
+    isAuthorized = false; authToken = null;
+    try { localStorage.removeItem(AUTH_KEY); } catch(e) {}
+    renderLoginArea();
     throw new Error('unauthorized');
   }
   if (result.status === 'conflict') {
@@ -371,10 +408,11 @@ async function callApi(action, payload) {
 }
 
 async function reloadFromCloud(manual) {
+  if (!isCloudConfigured()) { setSync('⚠️ 尚未設定 API_BASE_URL，請先部署後端並回來填上網址', true); return; }
   if (manual && !confirm('從雲端重新讀取會覆蓋畫面上未儲存的變更，確定要繼續？')) return;
   setSync('讀取中...');
   try {
-    const url = CLOUD_API_URL + '?action=data' + (googleAccessToken ? '&token=' + encodeURIComponent(googleAccessToken) : '');
+    const url = API_BASE_URL + '/api/data' + (authToken ? '?token=' + encodeURIComponent(authToken) : '');
     const res = await fetch(url);
     const data = await res.json();
     serverDataVersion = data._serverVersion || '0';
@@ -864,7 +902,7 @@ function renderSubForm(sheetName, r, defaultType) {
         <div><label>數量</label><input type="number" step="0.5" id="sf-qty" value="${r['數量']||0}"></div>
         <div><label>小計 *</label><input type="number" id="sf-subtotal" value="${r['小計']||0}" oninput="previewPayrollTax()"></div>
         ${type === '報酬單-點工' ? `
-          <div class="full" style="background:#0b1120;padding:10px;border-radius:6px">
+          <div class="full" style="background:var(--bg);padding:10px;border-radius:6px">
             <div style="font-size:12px;color:var(--dim);margin-bottom:6px">後端會自動計算稅務（規則：小計>2萬扣10%所得稅，>=2萬扣2.11%二代健保）</div>
             <div id="tax-preview" style="font-family:monospace;font-size:13px"></div>
           </div>
