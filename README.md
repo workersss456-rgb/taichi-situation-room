@@ -17,8 +17,7 @@ taichi/
 │   ├── package.json
 │   └── .env.example                     ← 環境變數範例
 ├── render.yaml                          ← Render 一鍵部署設定（選用）
-└── frontend/
-    └── index.html                       ← 前端頁面（改好顏色/手機版/新的登入方式）
+└── index.html                           ← 前端頁面（改好顏色/手機版/新的登入方式，跟 GitHub Pages 網址對應，放在根目錄）
 ```
 
 ---
@@ -49,12 +48,12 @@ taichi/
 
 ## 第三步：GitHub Pages（前端）
 
-1. 打開 `frontend/index.html`，找到最上面這一行：
+1. 打開 `index.html`（在專案根目錄），找到最上面這一行：
    ```js
    const API_BASE_URL = "https://YOUR-RENDER-SERVICE.onrender.com";
    ```
    換成你在第二步拿到的 Render 網址（結尾不要加斜線）。
-2. 把這個檔案覆蓋到你現有的 GitHub Pages repo（`workersss456-rgb.github.io/taichi-situation-room/`）裡對應的檔案，commit、push。
+2. 把這個檔案覆蓋到你現有的 GitHub Pages repo（`workersss456-rgb.github.io/taichi-situation-room/`）的**根目錄** `index.html`，commit、push。
 3. 打開網站，右上角輸入 `ADMIN_PASSWORD` 登入，就可以開始編輯資料了。
 
 ---
