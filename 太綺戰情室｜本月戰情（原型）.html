@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="zh-TW"><head><meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>太綺戰情室｜本月戰情（原型）</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--ink:#1c2534;--dim:#5b6b84;--line:#dbe2ee;--c1:#2563eb;--c2:#0f9d68;--c3:#d98a00;--c4:#8b3ee0;--pos:#0f9d68;--neg:#d92d3f;--warn:#b56a00;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media(prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#111827;--card:#1b2536;--ink:#e8edf5;--dim:#9aa8bd;--line:#2f3c52;--c1:#5b9bff;--c2:#34d399;--c3:#f5b83d;--c4:#b88cff;--pos:#34d399;--neg:#ff6b7a;--warn:#f5b83d}}
+:root[data-theme="dark"]{--bg:#111827;--card:#1b2536;--ink:#e8edf5;--dim:#9aa8bd;--line:#2f3c52;--c1:#5b9bff;--c2:#34d399;--c3:#f5b83d;--c4:#b88cff;--pos:#34d399;--neg:#ff6b7a;--warn:#f5b83d}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box;margin:0}
+body{background:var(--bg);color:var(--ink);font:14px/1.5 -apple-system,"PingFang TC","Microsoft JhengHei",sans-serif;padding:16px;max-width:1200px;margin:0 auto}
+h1{font-size:20px}h2{font-size:15px;margin-bottom:10px}
+.sub{color:var(--dim);font-size:12.5px}
+.note{background:rgba(217,138,0,.12);border:1px solid var(--warn);color:var(--warn);padding:8px 12px;border-radius:8px;margin:10px 0;font-size:12.5px}
+.grid{display:grid;gap:12px;margin-bottom:12px}
+.k4{grid-template-columns:repeat(4,1fr)}.g2{grid-template-columns:1fr 1fr}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px;min-width:0}
+.kpi b{display:block;font-size:26px;margin-top:2px}.kpi small{color:var(--dim)}
+.bar{height:6px;background:var(--line);border-radius:3px;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--c1)}
+.sc{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:13px}
+th,td{padding:7px 6px;border-bottom:1px solid var(--line);text-align:right;white-space:nowrap}
+th:first-child,td:first-child{text-align:left}th{color:var(--dim);font-weight:600}
+.pos{color:var(--pos)}.neg{color:var(--neg)}
+.tag{padding:2px 8px;border-radius:10px;font-size:11.5px;font-weight:700}
+.t-ok{background:rgba(15,157,104,.15);color:var(--pos)}.t-hi{background:rgba(217,45,63,.15);color:var(--neg)}.t-lo{background:rgba(217,138,0,.18);color:var(--warn)}
+.tabs{display:flex;gap:6px;margin-bottom:10px;flex-wrap:wrap}
+.tabs button{font:inherit;padding:6px 14px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:16px;cursor:pointer}
+.tabs button.on{background:var(--c1);color:#fff;border-color:var(--c1)}
+.pie{display:flex;gap:14px;align-items:center;flex-wrap:wrap}
+.leg{font-size:12.5px;display:grid;gap:4px}.leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+svg text{fill:var(--dim);font-size:10px}
+.scroll{max-height:320px;overflow:auto}
+select{font:inherit;padding:6px 10px;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;max-width:100%}
+#dtab th:nth-child(2),#dtab td:nth-child(2),#dtab th:nth-child(4),#dtab td:nth-child(4){text-align:left}
+@media(max-width:760px){body{padding:10px}.k4{grid-template-columns:1fr 1fr}.g2{grid-template-columns:1fr}.kpi b{font-size:22px}}
+</style></head><body>
+<h1>📊 本月戰情　<span id="mon"></span></h1>
+<div class="sub">老闆月初看板：收入／支出「預期 vs 實際」、類別異常、每日收支、三指標</div>
+<div class="note">⚠️ 原型：以下全是示意資料，用來確認版面與圖表。確認後才接資料庫。（截至 10/16）</div>
+
+<div class="card" style="margin-bottom:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap"><label for="sel">檢視範圍：</label><select id="sel" onchange="kpi()"></select></div>
+<div class="grid k4" id="kpi"></div>
+
+<div class="card" style="margin-bottom:12px"><h2>🔎 各案場收支概覽</h2>
+ <div class="tabs" id="tabs"></div>
+ <div class="grid g2" style="margin:0"><div class="sc"><table id="cat"></table></div><div id="catpie" class="pie"></div></div>
+</div>
+
+<div class="card" style="margin-bottom:12px"><h2>💸 收支總表：預估 vs 實際（所有案場）</h2><div class="sc"><table id="exp"></table></div></div>
+
+
+<div class="card"><h2>📅 每日收入與支出</h2>
+ <div class="sc"><svg id="daily" viewBox="0 0 720 280" width="100%" role="img" aria-label="每日收入與支出長條圖"></svg></div>
+ <div class="sub" style="margin:4px 0 8px"><i style="display:inline-block;width:10px;height:10px;background:var(--c2);margin-right:4px"></i>收入　<i style="display:inline-block;width:10px;height:10px;background:var(--neg);margin:0 4px 0 10px"></i>支出　<i style="display:inline-block;width:10px;height:10px;background:var(--ink);margin:0 4px 0 10px"></i>淨額（收入−支出）</div>
+ <div class="scroll sc"><table id="dtab"></table></div>
+</div>
+<div class="sub" style="margin-top:12px">指標定義（暫定）：達成率＝實際收入÷預估收入；毛利率＝(實際收入−實際支出)÷實際收入；完工比例＝累計已請款÷合約總額（系統推算）。折讓暫時單獨列示，未計入毛利率。</div>
+
+<script>
+const Y=2026,M=10,TODAY=16;document.getElementById('mon').textContent=Y+'年'+M+'月';
+const $=id=>document.getElementById(id),f=n=>'NT$'+Math.round(n).toLocaleString('zh-TW'),sum=a=>a.reduce((s,x)=>s+x,0);
+const P=[{n:'鎮曜營造-環中路',o:'鎮曜營造',ct:21096688,bl:9500000},{n:'隆程興業-裕毛屋案',o:'隆程興業',ct:8400000,bl:5100000},{n:'宏盛大樓機電',o:'宏盛建設',ct:12000000,bl:3600000},{n:'北屯住宅水電',o:'北屯建設',ct:5600000,bl:4200000}];
+const DE=[20,10,0,0].map(x=>x*1000),DA=[25,0,12,0].map(x=>x*1000),VEN=[['宏穎材料行','伸泰國際'],['點工-陳師傅','點工-林師傅'],['詠錠機電','久大工程行'],['運費','雜支']];
+const C=['材料','工數','發包','其他'],COL=['var(--c1)','var(--c2)','var(--c3)','var(--c4)'];
+const EST=[[400,200,350,0],[160,100,140,0],[220,130,260,0],[80,70,100,0]].map(r=>r.map(x=>x*1000));
+const ACT=[[360,215,470,28],[170,80,145,10],[190,150,230,0],[85,60,108,15]].map(r=>r.map(x=>x*1000));
+const IE=[[0,'現金',700e3,10],[0,'支票',1100e3,25],[1,'現金',400e3,12],[1,'支票',500e3,28],[2,'現金',300e3,15],[2,'支票',600e3,30],[3,'現金',200e3,8],[3,'支票',300e3,20]];
+const IA=[[0,'現金',680e3,10],[0,'支票',1100e3,14],[1,'現金',400e3,12],[1,'支票',500e3,15],[2,'現金',300e3,16],[3,'現金',200e3,8],[3,'支票',300e3,14]];
+const ex=[];P.forEach((p,pi)=>C.forEach((c,ci)=>{const A=ACT[pi][ci];if(!A)return;[[.5,(pi*5+ci*3)%16+1],[.3,(pi*7+ci*5+4)%16+1],[.2,(pi*3+ci*7+9)%16+1]].forEach(([w,d],k)=>ex.push([d,A*w,VEN[ci][(pi+k)%2]]))}));
+const rate=(a,b)=>b>0?a/b:null,pct=x=>x===null?'—':(x*100).toFixed(1)+'%';
+function tag(a,e){if(!e)return'';const r=a/e;return r>1.1?'<span class="tag t-hi">偏高</span>':r<.7?'<span class="tag t-lo">偏低</span>':'<span class="tag t-ok">正常</span>'}
+function pie(el,items){const t=sum(items.map(i=>i.v));let a=-Math.PI/2,s='<svg viewBox="-60 -60 120 120" width="150" height="150">';
+ if(t>0)items.forEach(i=>{const d=i.v/t*2*Math.PI;if(d<=0)return;if(i.v===t){s+=`<circle r="48" fill="none" stroke="${i.c}" stroke-width="22"/>`;return}const x1=48*Math.cos(a),y1=48*Math.sin(a);a+=d;s+=`<path d="M${x1} ${y1}A48 48 0 ${d>Math.PI?1:0} 1 ${48*Math.cos(a)} ${48*Math.sin(a)}" fill="none" stroke="${i.c}" stroke-width="22"/>`});
+ s+=`<text x="0" y="3" text-anchor="middle" style="font-size:9px">${f(t)}</text></svg><div class="leg">${items.map(i=>`<div><i style="background:${i.c}"></i>${i.l}　${f(i.v)}（${t?(i.v/t*100).toFixed(0):0}%）</div>`).join('')}</div>`;el.innerHTML=s}
+const incEst=sum(IE.map(x=>x[2])),incAct=sum(IA.map(x=>x[2])),expAct=sum(ACT.flat()),expEst=sum(EST.flat());
+function kpi(){const s=$('sel').value,ps=s==='all'?P.map((_,i)=>i):[+s],incEst=sum(IE.filter(x=>ps.includes(x[0])).map(x=>x[2])),incAct=sum(IA.filter(x=>ps.includes(x[0])).map(x=>x[2])),expAct=sum(ps.map(i=>sum(ACT[i]))),margin=rate(incAct-expAct,incAct),ach=rate(incAct,incEst),done=sum(ps.map(i=>P[i].bl))/sum(ps.map(i=>P[i].ct));
+$('kpi').innerHTML=[['達成率',pct(ach),'實際收入 '+f(incAct)+' ／ 預估 '+f(incEst),ach],['毛利率',pct(margin),'毛利 '+f(incAct-expAct),Math.max(0,margin)],['完工比例（推算）',pct(done),'累計已請款 ÷ 合約總額',done],['本月淨現金',f(incAct-expAct),'收入 '+f(incAct)+' − 支出 '+f(expAct),null]].map(k=>`<div class="card kpi"><small>${k[0]}</small><b>${k[1]}</b><small>${k[2]}</small>${k[3]!==null?`<div class="bar"><i style="width:${Math.min(100,k[3]*100)}%"></i></div>`:''}</div>`).join('')}
+$('sel').innerHTML='<option value="all">總表（全部案場）</option>'+P.map((p,i)=>`<option value="${i}">${p.n}</option>`).join('');kpi();
+const ic=m=>[sum(IE.filter(x=>x[1]===m).map(x=>x[2])),sum(IA.filter(x=>x[1]===m).map(x=>x[2]))];
+const ce=ci=>sum(EST.map(r=>r[ci])),ca=ci=>sum(ACT.map(r=>r[ci]));
+const dts=(l,m)=>l.filter(x=>x[1]===m).map(x=>x[3]).sort((a,b)=>a-b).map(d=>M+'/'+d).join('、')||'—';
+const R=(n,E,A,inc,d1,d2,b)=>`<tr><td>${b?'<b>'+n+'</b>':n}</td><td>${f(E)}</td><td>${f(A)}</td><td class="${(inc?A>=E:A<=E)?'pos':'neg'}">${f(A-E)}</td><td>${pct(rate(A,E))} ${b?'':tag2(A,E,inc)}</td><td>${d1||''}</td><td>${d2||''}</td></tr>`;
+$('exp').innerHTML='<tr><th>類別</th><th>預估</th><th>實際</th><th>差額</th><th>達成率</th><th>預計入帳日</th><th>實際入帳日</th></tr>'+['現金','支票'].map(m=>R('收入－'+m,ic(m)[0],ic(m)[1],1,dts(IE,m),dts(IA,m))).join('')+R('收入合計',incEst,incAct,1,'','',1)+C.map((c,i)=>R(c,ce(i),ca(i),0)).join('')+R('支出合計',expEst,expAct,0,'','',1)+R('收支淨額',incEst-expEst,incAct-expAct,1,'','',1);
+const CAT=['收入','材料','工數','發包','折讓','其他'];
+const E6=P.map((_,i)=>[sum(IE.filter(x=>x[0]===i).map(x=>x[2])),EST[i][0],EST[i][1],EST[i][2],DE[i],EST[i][3]]),A6=P.map((_,i)=>[sum(IA.filter(x=>x[0]===i).map(x=>x[2])),ACT[i][0],ACT[i][1],ACT[i][2],DA[i],ACT[i][3]]);
+function tag2(a,e,inc){if(!e)return'';return inc?(a/e<.7?'<span class="tag t-lo">偏低</span>':'<span class="tag t-ok">正常</span>'):tag(a,e)}
+let cur=0;function cat(){document.querySelectorAll('#tabs button').forEach((b,i)=>b.className=i===cur?'on':'');
+ const e=P.map((_,i)=>E6[i][cur]),a=P.map((_,i)=>A6[i][cur]),inc=cur===0,row=(n,E,A,b)=>`<tr><td>${b?'<b>'+n+'</b>':n}</td><td>${f(E)}</td><td>${f(A)}</td><td class="${(inc?A>=E:A<=E)?'pos':'neg'}">${f(A-E)}</td><td>${pct(rate(A,E))} ${tag2(A,E,inc)}</td></tr>`;
+ $('cat').innerHTML='<tr><th>案場</th><th>預估</th><th>實際</th><th>差額</th><th>達成率</th></tr>'+P.map((p,i)=>row(p.n,e[i],a[i])).join('')+row('合計',sum(e),sum(a),1);
+ pie($('catpie'),inc?[{l:'實際現金',v:ic('現金')[1],c:'var(--c2)'},{l:'實際支票',v:ic('支票')[1],c:'var(--c1)'}]:P.map((p,i)=>({l:p.n,v:a[i],c:COL[i]})))}
+$('tabs').innerHTML=CAT.map((c,i)=>`<button onclick="cur=${i};cat()">${c}</button>`).join('');cat();
+const days=[...Array(TODAY)].map((_,i)=>{const d=i+1,inc=sum(IA.filter(x=>x[3]===d).map(x=>x[2])),out=sum(ex.filter(x=>x[0]===d).map(x=>x[1]));return{d,inc,out}});
+const net=days.map(x=>x.inc-x.out),all=days.flatMap(x=>[x.inc,x.out]).concat(net,0),mx=Math.max(...all),mn=Math.min(...all),T=30,H=200,py=v=>T+(mx-v)/(mx-mn||1)*H,px=i=>30+i*(660/(TODAY-1));
+const lab=v=>(v<0?'-':'')+(Math.abs(v)/1e4).toFixed(1).replace(/\.0$/,'')+'萬';
+const ln=(arr,c,dy)=>`<polyline fill="none" stroke="${c}" stroke-width="2" points="${arr.map((v,i)=>px(i)+','+py(v)).join(' ')}"/>`+arr.map((v,i)=>`<circle cx="${px(i)}" cy="${py(v)}" r="2.5" fill="${c}"/>`+(v?`<text x="${px(i)}" y="${py(v)+dy}" text-anchor="middle" style="fill:${c};font-size:9px;font-weight:700">${lab(v)}</text>`:'')).join('');
+$('daily').innerHTML=`<line x1="0" x2="720" y1="${py(0)}" y2="${py(0)}" stroke="var(--line)"/>`+ln(days.map(x=>x.inc),'var(--c2)',-7)+ln(days.map(x=>x.out),'var(--neg)',13)+ln(net,'var(--ink)',-7)+days.map((x,i)=>`<g><title>${M}/${x.d} 收入 ${f(x.inc)}　支出 ${f(x.out)}　淨額 ${f(x.inc-x.out)}</title><text x="${px(i)}" y="${T+H+22}" text-anchor="middle">${x.d}</text></g>`).join('');
+const tx=[...IA.map(x=>({d:x[3],v:P[x[0]].o,a:x[2]})),...ex.map(x=>({d:x[0],v:x[2],a:-x[1]}))].sort((a,b)=>a.d-b.d);
+const st=r=>r.a>0?`<span class="tag t-ok">已入帳 ${M}/${r.d}</span>`:r.d<=9?`<span class="tag t-ok">已撥款 ${M}/${r.d+5}</span>`:r.d<=13?`<span class="tag t-lo">撥部份款項（已撥 ${f(-r.a*.5)}）</span>`:'<span class="tag t-hi">尚未撥款</span>';
+$('dtab').innerHTML='<tr><th>日期</th><th>廠商名稱</th><th>金額</th><th>會計備註</th></tr>'+tx.map(r=>`<tr><td>${M}/${r.d}</td><td>${r.v}</td><td class="${r.a>=0?'pos':'neg'}">${r.a>=0?'+':'−'}${f(Math.abs(r.a))}</td><td>${st(r)}</td></tr>`).join('');
+</script></body></html>
