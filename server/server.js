@@ -15,12 +15,15 @@ app.use(cors({ origin: ALLOWED_ORIGIN }));
 
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  ssl: { rejectUnauthorized: false }
+  ssl: { rejectUnauthorized: false } // Neon 需要 SSL
 });
 
 const JWT_SECRET = process.env.JWT_SECRET || 'change-me-please';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD;
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // 明碼存在 Render 環境變數即可，不落地到程式碼
 
+// ---------------------------------------------------------------------
+// 每張表的設定：表名 / 主鍵欄位 / 產生新 ID 用的前綴 / 允許寫入的欄位
+// ---------------------------------------------------------------------
 const TABLES = {
   '案場主檔': {
     idCol: '案場ID', prefix: 'P', pad: 4,
@@ -37,7 +40,7 @@ const TABLES = {
   '點工人員主檔': {
     idCol: '人員ID', prefix: 'W', pad: 4,
     cols: ['姓名','身分證字號','建立日期','備註'],
-    sensitiveCols: ['身分證字號']
+    sensitiveCols: ['身分證字號'] // 未登入時遮蔽
   },
   '月度請款': {
     idCol: '請款ID', prefix: 'B', pad: 4,
@@ -49,18 +52,29 @@ const TABLES = {
   },
   '收款登記': {
     idCol: '收款ID', prefix: 'R', pad: 4,
-    cols: ['案場ID','方式','日期','金額','銀行','支票號碼','手續費','狀態','對應發票ID','備註']
+    cols: ['案場ID','方式','日期','金額','銀行','支票號碼','手續費','狀態','對應發票ID','對應預估收入ID','備註']
   },
   '支出登記': {
     idCol: '支出ID', prefix: 'E', pad: 4,
-    cols: ['案場ID','類型','日期','廠商ID','發票號碼','項目','金額(含稅)','點工人員ID','工項','數量','小計','代扣所得稅','代扣二代健保','實際支付金額','備註']
+    cols: ['案場ID','類型','日期','廠商ID','發票號碼','項目','金額(含稅)','點工人員ID','工項','數量','小計','代扣所得稅','代扣二代健保','實際支付金額','撥款狀態','撥款日期','已撥金額','備註']
+  },
+  '預估收入': {
+    idCol: '預估收入ID', prefix: 'F', pad: 4,
+    cols: ['案場ID','年月','方式','預估金額','預計入帳日','已完成','完成日期','對應收款ID','備註']
+  },
+  '預估支出': {
+    idCol: '預估支出ID', prefix: 'X', pad: 4,
+    cols: ['案場ID','年月','類別','預估金額','備註']
   },
   '案場預算': {
-    idCol: '案場ID', fixedId: true,
+    idCol: '案場ID', fixedId: true, // 案場ID 本身就是主鍵，一案場一筆，寫入即 upsert
     cols: ['材料預算','發包預算','點工預算','其他預算','預計完工日','備註']
   }
 };
 
+// ---------------------------------------------------------------------
+// 小工具
+// ---------------------------------------------------------------------
 function q(id) { return '"' + id.replace(/"/g, '""') + '"'; }
 
 function getAuth(req) {
@@ -112,6 +126,9 @@ async function logChange(client, actor, action, sheetName, rowId, note) {
   );
 }
 
+// ---------------------------------------------------------------------
+// 登入：單一管理密碼（在 Render 環境變數 ADMIN_PASSWORD 設定）
+// ---------------------------------------------------------------------
 app.post('/api/login', (req, res) => {
   const { password } = req.body || {};
   if (!ADMIN_PASSWORD) return res.status(500).json({ status: 'error', message: '伺服器尚未設定 ADMIN_PASSWORD' });
@@ -120,6 +137,9 @@ app.post('/api/login', (req, res) => {
   res.json({ status: 'ok', token, isAuthorized: true, expiresIn: 30 * 24 * 3600 });
 });
 
+// ---------------------------------------------------------------------
+// GET /api/data — 一次拉全部分頁，格式跟前端的 DATA 物件一致
+// ---------------------------------------------------------------------
 app.get('/api/data', async (req, res) => {
   const auth = getAuth(req);
   const isAuthorized = !!(auth && auth.authorized);
@@ -141,6 +161,9 @@ app.get('/api/data', async (req, res) => {
   }
 });
 
+// ---------------------------------------------------------------------
+// POST /api/action — createRow / updateRow / deleteRow
+// ---------------------------------------------------------------------
 app.post('/api/action', async (req, res) => {
   const { action, sheetName, rowId, data, _clientVersion } = req.body || {};
   const auth = getAuth(req);
@@ -164,6 +187,7 @@ app.post('/api/action', async (req, res) => {
 
     let resultId = rowId;
     if (cfg.fixedId && (action === 'createRow' || action === 'updateRow')) {
+      // upsert：案場ID 本身當主鍵，不產生新 ID，寫入即覆蓋
       resultId = rowId || (data && data[cfg.idCol]);
       if (!resultId) throw new Error('缺少 ' + cfg.idCol);
       const cols = cfg.cols.filter(c => data && data[c] !== undefined);
