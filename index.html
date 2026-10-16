@@ -136,6 +136,12 @@
     .contract-item{flex-direction:column;align-items:flex-start;gap:8px}
     input[type=text],input[type=number],input[type=date],input[type=month],select,textarea{font-size:16px} /* 避免 iOS 自動放大畫面 */
   }
+  .pie{display:flex;gap:14px;align-items:center;flex-wrap:wrap}.leg{font-size:12.5px;display:grid;gap:4px}.leg i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px}
+  .wr-2{display:grid;grid-template-columns:1fr 1fr;gap:12px}.kpi-sub{font-size:12px;color:var(--dim);margin-top:2px}
+  .num th:not(:first-child),.num td:not(:first-child){text-align:right;white-space:nowrap}
+  #wr-day th:nth-child(2),#wr-day td:nth-child(2),#wr-day th:nth-child(4),#wr-day td:nth-child(4){text-align:left}#wr-day th:nth-child(3),#wr-day td:nth-child(3){text-align:right}
+  #wr-chart text{fill:var(--dim);font-size:10px}.scr{max-height:320px;overflow:auto}
+  @media (max-width:760px){.wr-2{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -147,7 +153,6 @@
     </div>
     <div class="actions">
       <div id="login-area"></div>
-      <button class="btn btn-dark" onclick="reloadFromCloud(true)">🔄 從雲端重新讀取</button>
     </div>
   </header>
 
@@ -162,59 +167,17 @@
     <button class="tab-btn" data-tab="workers" onclick="switchTab('workers')">👷 點工人員</button>
   </div>
 
-  <!-- 儀表板 -->
+  <!-- 儀表板（戰情室） -->
   <div class="tab-panel active" id="tab-dashboard">
-    <div class="card">
-      <div class="card-head">📅 期間篩選</div>
-      <div class="card-body">
-        <div class="filter-row">
-          <label>模式：</label>
-          <select id="filter-mode" onchange="renderDashboard()">
-            <option value="month">單月</option>
-            <option value="year">整年</option>
-            <option value="range">自訂區間</option>
-          </select>
-          <div id="filter-month-wrap"><label>月份：</label><input type="month" id="filter-month" onchange="renderDashboard()"></div>
-          <div id="filter-year-wrap" style="display:none"><label>年份：</label><input type="number" id="filter-year" min="2020" max="2099" onchange="renderDashboard()"></div>
-          <div id="filter-range-wrap" style="display:none">
-            <label>從：</label><input type="date" id="filter-from" onchange="renderDashboard()">
-            <label>到：</label><input type="date" id="filter-to" onchange="renderDashboard()">
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <div class="kpi-grid" id="dashboard-kpi"></div>
-
-    <div class="card">
-      <div class="card-head">📊 案場損益排行（本期間）</div>
-      <div class="card-body" id="dashboard-ranking"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">🥧 支出結構分析</div>
-      <div class="card-body" id="dashboard-expense-structure"></div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">🎯 各案場達成率</div>
-      <div class="card-body">
-        <table>
-          <thead><tr><th>案場</th><th>狀態</th><th>合約總額</th><th>累計已請款</th><th>合約達成率</th><th>本期預估請款</th><th>本期實際請款</th><th>本期收入達成率</th></tr></thead>
-          <tbody id="dashboard-achievement"></tbody>
-        </table>
-      </div>
-    </div>
-
-    <div class="card">
-      <div class="card-head">🧮 各案場成本執行率（預算 vs 實際，全案場累計）</div>
-      <div class="card-body">
-        <table>
-          <thead><tr><th>案場</th><th>預算總額</th><th>實際支出</th><th>成本執行率</th><th>合約達成率</th><th>進度健康度</th></tr></thead>
-          <tbody id="dashboard-budget"></tbody>
-        </table>
-      </div>
-    </div>
+    <div class="card"><div class="card-body"><div class="filter-row"><label>月份：</label><input type="month" id="filter-month" onchange="renderDashboard()"><input type="number" id="filter-year" hidden><label>檢視範圍：</label><select id="wr-sel" onchange="renderDashboard()"></select></div></div></div>
+    <div class="kpi-grid" id="wr-kpi"></div>
+    <div class="card"><div class="card-head">🔎 各案場收支概覽</div><div class="card-body"><div class="expense-type-tabs" id="wr-tabs"></div><div class="wr-2"><div><table class="num" id="wr-cat"></table></div><div class="pie" id="wr-pie"></div></div></div></div>
+    <div class="card"><div class="card-head">💸 收支總表：預估 vs 實際（所有案場）</div><div class="card-body"><table class="num" id="wr-sum"></table></div></div>
+    <div class="card"><div class="card-head">📅 每日收入與支出</div><div class="card-body">
+      <svg id="wr-chart" viewBox="0 0 720 280" width="100%" role="img" aria-label="每日收入與支出折線圖"></svg>
+      <div class="kpi-sub" style="margin:4px 0 8px"><span style="color:var(--green)">●</span> 收入　<span style="color:var(--red)">●</span> 支出　<span style="color:var(--ink)">●</span> 淨額（收入−支出）</div>
+      <div class="scr"><table id="wr-day"></table></div></div></div>
+    <div class="kpi-sub">達成率＝實際收入÷預估收入；毛利率＝(實際收入−實際支出)÷實際收入；完工比例＝累計已請款÷合約總額。實際收入看「收款登記」（支票到期未兌現、退票不計）。折讓只列示，未計入毛利。</div>
   </div>
 
   <!-- 案場列表 -->
@@ -296,7 +259,7 @@
 // 全域狀態
 // =====================================================================
 // 👉 部署 Render 後端完成後，把網址貼在這裡（結尾不要加斜線）
-const API_BASE_URL = "https://YOUR-RENDER-SERVICE.onrender.com";
+const API_BASE_URL = "https://taichi-situation-room-api.onrender.com";
 const AUTH_KEY = 'cost_center_auth_v1';
 
 let isAuthorized = false, authToken = null;
@@ -305,7 +268,7 @@ let serverDataVersion = '0';
 // 資料快取（從後端 GET 拉來的）
 let DATA = {
   '案場主檔': [], '合約明細': [], '廠商主檔': [], '點工人員主檔': [],
-  '月度請款': [], '發票登記': [], '收款登記': [], '支出登記': [], '案場預算': []
+  '月度請款': [], '發票登記': [], '收款登記': [], '支出登記': [], '案場預算': [], '預估收入': [], '預估支出': []
 };
 
 // 當前開啟的案場詳情
@@ -437,81 +400,50 @@ async function reloadFromCloud(manual) {
 // =====================================================================
 // 儀表板
 // =====================================================================
+const $=id=>document.getElementById(id);
+const WC=['收入','材料','工數','發包','折讓','其他'],WCOL=['var(--blue)','var(--green)','var(--amber)','var(--purple)'];
+const wsum=a=>a.reduce((x,y)=>x+(+y||0),0),wrate=(a,b)=>b>0?a/b:null,wpct=x=>x===null?'—':(x*100).toFixed(1)+'%';
+const dOf=x=>toDateStr(x),inM=(x,ym)=>dOf(x).slice(0,7)===ym,dayOf=x=>+dOf(x).slice(8,10),mdOf=x=>(+dOf(x).slice(5,7))+'/'+(+dOf(x).slice(8,10));
+const expCat=e=>e['類型']==='材料設備'?'材料':e['類型']==='發票-發包'?'發包':/點工/.test(e['類型']||'')?'工數':'其他';
+const expAmtW=e=>e['類型']==='報酬單-點工'?(+e['實際支付金額']||0):e['類型']==='現金-點工'?(+e['小計']||0):(+e['金額(含稅)']||0);
+const recvKind=r=>r['方式']==='支票'?'支票':'現金',recvOk=r=>!['退票','到期'].includes(r['狀態']);
+let wrTab=0;
+function wtag(a,e,inc){if(!e)return'';const r=a/e,B=(c,t)=>`<span class="badge badge-${c}">${t}</span>`;return inc?(r<.7?B('warn','偏低'):B('ok','正常')):(r>1.1?B('danger','偏高'):r<.7?B('warn','偏低'):B('ok','正常'))}
+function wpie(el,items){const t=wsum(items.map(i=>i.v));if(t<=0){el.innerHTML='<div class="empty">本月無資料</div>';return}let a=-Math.PI/2,s='<svg viewBox="-60 -60 120 120" width="150" height="150">';
+ items.forEach(i=>{const d=i.v/t*2*Math.PI;if(d<=0)return;if(i.v===t){s+=`<circle r="48" fill="none" stroke="${i.c}" stroke-width="22"/>`;return}const x1=48*Math.cos(a),y1=48*Math.sin(a);a+=d;s+=`<path d="M${x1} ${y1}A48 48 0 ${d>Math.PI?1:0} 1 ${48*Math.cos(a)} ${48*Math.sin(a)}" fill="none" stroke="${i.c}" stroke-width="22"/>`});
+ el.innerHTML=s+`</svg><div class="leg">${items.map(i=>`<div><i style="background:${i.c}"></i>${escapeHtml(i.l)}　${fmt(i.v)}（${(i.v/t*100).toFixed(0)}%）</div>`).join('')}</div>`}
 function renderDashboard() {
-  // 依模式切顯示
-  const mode = document.getElementById('filter-mode').value;
-  document.getElementById('filter-month-wrap').style.display = mode === 'month' ? 'block' : 'none';
-  document.getElementById('filter-year-wrap').style.display = mode === 'year' ? 'block' : 'none';
-  document.getElementById('filter-range-wrap').style.display = mode === 'range' ? 'block' : 'none';
-
-  const { fromDate, toDate, label } = getPeriodRange();
-
-  // 計算集團損益
-  const stats = calcPeriodStats(fromDate, toDate);
-
-  document.getElementById('dashboard-kpi').innerHTML = `
-    <div class="kpi-card blue"><div class="kpi-label">總收入（${label}）</div><div class="kpi-value">${fmt(stats.totalIncome)}</div></div>
-    <div class="kpi-card amber"><div class="kpi-label">總支出（${label}）</div><div class="kpi-value">${fmt(stats.totalExpense)}</div></div>
-    <div class="kpi-card ${stats.profit >= 0 ? 'green' : 'red'}"><div class="kpi-label">毛利</div><div class="kpi-value">${fmt(stats.profit)}</div></div>
-    <div class="kpi-card ${stats.profit >= 0 ? 'teal' : 'red'}"><div class="kpi-label">毛利率</div><div class="kpi-value">${stats.totalIncome > 0 ? (stats.profit / stats.totalIncome * 100).toFixed(1) : '0'}%</div></div>
-  `;
-
-  // 案場排行
-  const perProject = calcPerProjectStats(fromDate, toDate);
-  const sortedProjects = perProject.slice().sort((a,b) => b.profit - a.profit);
-  const maxAbs = Math.max(1, ...sortedProjects.map(p => Math.abs(p.profit)));
-
-  document.getElementById('dashboard-ranking').innerHTML = sortedProjects.length
-    ? sortedProjects.map(p => {
-        const w = Math.max(2, Math.abs(p.profit) / maxAbs * 100);
-        const cls = p.profit >= 0 ? 'profit' : 'loss';
-        const rate = p.income > 0 ? (p.profit / p.income * 100).toFixed(1) : '—';
-        return `<div class="ranking-bar"><div class="ranking-name">${escapeHtml(p.name)}</div><div class="ranking-track"><div class="ranking-fill ${cls}" style="width:${w}%"></div></div><div class="ranking-value ${p.profit >= 0 ? 'money-pos' : 'money-neg'}">${fmt(p.profit)} (${rate}%)</div></div>`;
-      }).join('')
-    : '<div class="empty">本期間無資料</div>';
-
-  // 支出結構
-  const struct = calcExpenseStructure(fromDate, toDate);
-  document.getElementById('dashboard-expense-structure').innerHTML = struct.total > 0
-    ? Object.keys(struct.byType).map(t => {
-        const pct = (struct.byType[t] / struct.total * 100).toFixed(1);
-        return `<div class="stat-chip">${t}: <b>${fmt(struct.byType[t])}</b> (${pct}%)</div>`;
-      }).join('') + `<div style="margin-top:8px;color:var(--dim);font-size:12px">支出總額：${fmt(struct.total)}</div>`
-    : '<div class="empty">本期間無支出資料</div>';
-
-  // 各案場達成率表格
-  document.getElementById('dashboard-achievement').innerHTML = DATA['案場主檔'].length
-    ? DATA['案場主檔'].map(p => {
-        const contractTotal = calcContractTotalIncl(p['案場ID']);
-        const totalReceived = calcTotalInvoiceForProject(p['案場ID'], null, null);
-        const contractRate = contractTotal > 0 ? (totalReceived / contractTotal * 100).toFixed(1) : '—';
-        const monthlyEst = calcMonthlyEstimate(p['案場ID'], fromDate, toDate);
-        const monthlyActual = calcTotalInvoiceForProject(p['案場ID'], fromDate, toDate);
-        const incomeRate = monthlyEst > 0 ? (monthlyActual / monthlyEst * 100).toFixed(1) : '—';
-        return `<tr><td>${escapeHtml(p['案場名稱'])}</td><td><span class="badge ${p['狀態']==='進行中'?'badge-ok':'badge-dim'}">${escapeHtml(p['狀態']||'—')}</span></td><td>${fmt(contractTotal)}</td><td>${fmt(totalReceived)}</td><td>${contractRate}%</td><td>${fmt(monthlyEst)}</td><td>${fmt(monthlyActual)}</td><td>${incomeRate}%</td></tr>`;
-      }).join('')
-    : '<tr><td colspan="8" class="empty">尚無案場資料</td></tr>';
-
-  // 各案場成本執行率（預算 vs 實際）
-  document.getElementById('dashboard-budget').innerHTML = DATA['案場主檔'].length
-    ? DATA['案場主檔'].map(p => {
-        const b = calcProjectBudget(p['案場ID']);
-        const budgetTotal = b.material + b.sub + b.labor + b.other;
-        const actual = calcProjectActualByCategory(p['案場ID'], null, null);
-        const actualTotal = actual.material + actual.sub + actual.labor + actual.other;
-        const contractTotal = calcContractTotalIncl(p['案場ID']);
-        const totalReceived = calcTotalInvoiceForProject(p['案場ID'], null, null);
-        const costProgress = budgetTotal > 0 ? (actualTotal / budgetTotal * 100) : null;
-        const billingProgress = contractTotal > 0 ? (totalReceived / contractTotal * 100) : null;
-        let health = '<span class="badge badge-dim">尚未設預算</span>';
-        if (costProgress !== null && billingProgress !== null) {
-          if (costProgress - billingProgress > 10) health = '<span class="badge badge-danger">⚠️ 花費超前</span>';
-          else if (billingProgress - costProgress > 15) health = '<span class="badge badge-warn">待確認入帳</span>';
-          else health = '<span class="badge badge-ok">正常</span>';
-        }
-        return `<tr><td>${escapeHtml(p['案場名稱'])}</td><td>${fmt(budgetTotal)}</td><td>${fmt(actualTotal)}</td><td>${costProgress!==null?costProgress.toFixed(1)+'%':'—'}</td><td>${billingProgress!==null?billingProgress.toFixed(1)+'%':'—'}</td><td>${health}</td></tr>`;
-      }).join('')
-    : '<tr><td colspan="6" class="empty">尚無案場資料</td></tr>';
+ const mEl=$('filter-month');
+ if(!window.wrInit&&(DATA['收款登記'].length||DATA['支出登記'].length)){const all=[...DATA['收款登記'].map(r=>dOf(r['日期'])),...DATA['支出登記'].map(e=>dOf(e['日期']))].filter(Boolean).sort();if(all.length)mEl.value=all[all.length-1].slice(0,7);window.wrInit=1}
+ const ym=mEl.value||new Date().toISOString().slice(0,7),mNum=+ym.slice(5,7),sel=$('wr-sel'),cur=sel.value||'all',PJ=DATA['案場主檔'];
+ sel.innerHTML='<option value="all">總表（全部案場）</option>'+PJ.map(p=>`<option value="${escapeHtml(p['案場ID'])}">${escapeHtml(p['案場名稱'])}</option>`).join('');sel.value=PJ.some(p=>p['案場ID']===cur)?cur:'all';
+ const RV=DATA['收款登記'].filter(r=>inM(r['日期'],ym)&&recvOk(r)),EX=DATA['支出登記'].filter(e=>inM(e['日期'],ym)),EI=DATA['預估收入'].filter(x=>x['年月']===ym),EE=DATA['預估支出'].filter(x=>x['年月']===ym),DS=DATA['發票登記'].filter(i=>i['類型']==='折讓'&&inM(i['發票日期'],ym));
+ const by=(arr,id,fn)=>wsum(arr.filter(x=>x['案場ID']===id).map(fn));
+ const E6=PJ.map(p=>{const id=p['案場ID'],ee=c=>by(EE.filter(x=>x['類別']===c),id,x=>x['預估金額']),ea=c=>by(EX.filter(e=>expCat(e)===c),id,expAmtW);
+  return{p,e:[by(EI,id,x=>x['預估金額']),ee('材料'),ee('工數'),ee('發包'),ee('折讓'),ee('其他')],a:[by(RV,id,r=>r['金額']),ea('材料'),ea('工數'),ea('發包'),by(DS,id,i=>i['金額(含稅)']),ea('其他')]}});
+ const tot=(rs,k,w)=>wsum(rs.map(r=>r[w][k]));
+ // KPI（可選案場）
+ const rows=sel.value==='all'?E6:E6.filter(r=>r.p['案場ID']===sel.value),T=k=>tot(rows,k,'e'),A=k=>tot(rows,k,'a');
+ const incE=T(0),incA=A(0),expA=A(1)+A(2)+A(3)+A(5),ct=wsum(rows.map(r=>calcContractTotalIncl(r.p['案場ID']))),done=ct>0?wsum(rows.map(r=>calcTotalInvoiceForProject(r.p['案場ID'],null,null)))/ct:null;
+ $('wr-kpi').innerHTML=[['達成率',wpct(wrate(incA,incE)),'實際收入 '+fmt(incA)+' ／ 預估 '+fmt(incE),'blue'],['毛利率',wpct(wrate(incA-expA,incA)),'毛利 '+fmt(incA-expA),'green'],['完工比例（推算）',wpct(done),'累計已請款 ÷ 合約總額','teal'],['本月淨現金',fmt(incA-expA),'收入 '+fmt(incA)+' − 支出 '+fmt(expA),incA-expA>=0?'green':'red']].map(k=>`<div class="kpi-card ${k[3]}"><div class="kpi-label">${k[0]}</div><div class="kpi-value">${k[1]}</div><div class="kpi-sub">${k[2]}</div></div>`).join('');
+ // 各案場收支概覽
+ $('wr-tabs').innerHTML=WC.map((c,i)=>`<button class="expense-type-btn ${i===wrTab?'active':''}" onclick="wrTab=${i};renderDashboard()">${c}</button>`).join('');
+ const inc=wrTab===0,rowH=(n,E,A,b)=>`<tr><td>${b?'<b>'+n+'</b>':n}</td><td>${fmt(E)}</td><td>${fmt(A)}</td><td class="${(inc?A>=E:A<=E)?'money-pos':'money-neg'}">${fmt(A-E)}</td><td>${wpct(wrate(A,E))} ${b?'':wtag(A,E,inc)}</td></tr>`;
+ $('wr-cat').innerHTML='<tr><th>案場</th><th>預估</th><th>實際</th><th>差額</th><th>達成率</th></tr>'+(E6.length?E6.map(r=>rowH(escapeHtml(r.p['案場名稱']),r.e[wrTab],r.a[wrTab])).join('')+rowH('合計',tot(E6,wrTab,'e'),tot(E6,wrTab,'a'),1):'<tr><td colspan="5" class="empty">尚無案場資料</td></tr>');
+ wpie($('wr-pie'),inc?['現金','支票'].map((k,i)=>({l:'實際'+k,v:wsum(RV.filter(r=>recvKind(r)===k).map(r=>r['金額'])),c:WCOL[i]})):E6.map((r,i)=>({l:r.p['案場名稱'],v:r.a[wrTab],c:WCOL[i%4]})));
+ // 收支總表
+ const dl=(arr,f)=>[...new Set(arr.map(x=>dOf(x[f])).filter(Boolean))].sort().map(d=>mdOf(d)).join('、')||'—';
+ const R=(n,E,A,i,d1,d2,b)=>`<tr><td>${b?'<b>'+n+'</b>':n}</td><td>${fmt(E)}</td><td>${fmt(A)}</td><td class="${(i?A>=E:A<=E)?'money-pos':'money-neg'}">${fmt(A-E)}</td><td>${wpct(wrate(A,E))} ${b?'':wtag(A,E,i)}</td><td>${d1||''}</td><td>${d2||''}</td></tr>`;
+ const iE=tot(E6,0,'e'),iA=tot(E6,0,'a'),xE=[1,2,3,5].reduce((s,k)=>s+tot(E6,k,'e'),0),xA=[1,2,3,5].reduce((s,k)=>s+tot(E6,k,'a'),0);
+ $('wr-sum').innerHTML='<tr><th>類別</th><th>預估</th><th>實際</th><th>差額</th><th>達成率</th><th>預計入帳日</th><th>實際入帳日</th></tr>'+['現金','支票'].map(k=>{const ei=EI.filter(x=>x['方式']===k),rv=RV.filter(r=>recvKind(r)===k);return R('收入－'+k,wsum(ei.map(x=>x['預估金額'])),wsum(rv.map(r=>r['金額'])),1,dl(ei,'預計入帳日'),dl(rv,'日期'))}).join('')+R('收入合計',iE,iA,1,'','',1)+[1,2,3,5].map(k=>R(WC[k],tot(E6,k,'e'),tot(E6,k,'a'),0)).join('')+R('支出合計',xE,xA,0,'','',1)+R('收支淨額',iE-xE,iA-xA,1,'','',1);
+ // 每日收支
+ const nm=id=>(PJ.find(p=>p['案場ID']===id)||{})['業主']||'業主';
+ const tx=[...RV.map(r=>({d:dayOf(r['日期']),v:nm(r['案場ID']),a:+r['金額']||0,note:`<span class="badge badge-ok">已入帳 ${mdOf(r['日期'])}</span>`})),...EX.map(e=>{const s=e['撥款狀態']||'尚未撥款';return{d:dayOf(e['日期']),v:getExpenseTarget(e)||'—',a:-expAmtW(e),note:s==='已撥款'?`<span class="badge badge-ok">已撥款 ${e['撥款日期']?mdOf(e['撥款日期']):''}</span>`:s==='撥部份款項'?`<span class="badge badge-warn">撥部份款項（已撥 ${fmt(e['已撥金額'])}）</span>`:'<span class="badge badge-danger">尚未撥款</span>'}})].sort((a,b)=>a.d-b.d);
+ const lastD=new Date(+ym.slice(0,4),mNum,0).getDate(),N=Math.max(2,ym===new Date().toISOString().slice(0,7)?Math.min(lastD,new Date().getDate()):lastD);
+ const days=[...Array(N)].map((_,i)=>({d:i+1,i:wsum(tx.filter(t=>t.d===i+1&&t.a>0).map(t=>t.a)),o:wsum(tx.filter(t=>t.d===i+1&&t.a<0).map(t=>-t.a))})),net=days.map(x=>x.i-x.o),all=days.flatMap(x=>[x.i,x.o]).concat(net,0),mx=Math.max(...all),mn=Math.min(...all),TT=30,H=200,py=v=>TT+(mx-v)/(mx-mn||1)*H,px=i=>30+i*(660/(N-1)),lab=v=>(v<0?'-':'')+(Math.abs(v)/1e4).toFixed(1).replace(/\.0$/,'')+'萬';
+ const ln=(arr,c,dy)=>`<polyline fill="none" stroke="${c}" stroke-width="2" points="${arr.map((v,i)=>px(i)+','+py(v)).join(' ')}"/>`+arr.map((v,i)=>`<circle cx="${px(i)}" cy="${py(v)}" r="2.5" fill="${c}"/>`+(v?`<text x="${px(i)}" y="${py(v)+dy}" text-anchor="middle" style="fill:${c};font-size:9px;font-weight:700">${lab(v)}</text>`:'')).join('');
+ $('wr-chart').innerHTML=`<line x1="0" x2="720" y1="${py(0)}" y2="${py(0)}" stroke="var(--border)"/>`+ln(days.map(x=>x.i),'var(--green)',-7)+ln(days.map(x=>x.o),'var(--red)',13)+ln(net,'var(--ink)',-7)+days.map((x,i)=>`<text x="${px(i)}" y="${TT+H+22}" text-anchor="middle">${x.d}</text>`).join('');
+ $('wr-day').innerHTML='<tr><th>日期</th><th>廠商名稱</th><th>金額</th><th>會計備註</th></tr>'+(tx.length?tx.map(t=>`<tr><td>${mNum}/${t.d}</td><td>${escapeHtml(t.v)}</td><td class="${t.a>=0?'money-pos':'money-neg'}">${t.a>=0?'+':'−'}${fmt(Math.abs(t.a))}</td><td>${t.note}</td></tr>`).join(''):'<tr><td colspan="4" class="empty">本月無收支紀錄</td></tr>');
 }
 
 function getPeriodRange() {
@@ -751,6 +683,7 @@ function renderDetailBody() {
   const subtabs = [
     { key: 'contract', label: '📋 合約明細+追加' },
     { key: 'budget', label: '🧮 預算控制' },
+    { key: 'est', label: '📈 預估收支' },
     { key: 'monthly', label: '📅 月度請款' },
     { key: 'invoice', label: '🧾 發票登記' },
     { key: 'payment', label: '💰 收款登記' },
@@ -783,6 +716,7 @@ function renderDetailBody() {
 function renderSubpanelContent(name) {
   if (name === 'contract') return renderContractPanel();
   if (name === 'budget') return renderBudgetPanel();
+  if (name === 'est') return renderEstPanel();
   if (name === 'monthly') return renderMonthlyPanel();
   if (name === 'invoice') return renderInvoicePanel();
   if (name === 'payment') return renderPaymentPanel();
@@ -869,6 +803,16 @@ function renderBudgetPanel() {
     ${budget.note ? `<div style="margin-top:4px;color:var(--dim);font-size:12px">備註：${escapeHtml(budget.note)}</div>` : ''}
     ${totalBudget === 0 ? '<div class="empty">尚未設定預算，按右上角「設定 / 編輯預算」建立成本基準線</div>' : ''}
   `;
+}
+function renderEstPanel() {
+  const pid = currentProjectId, srt = (a,b) => String(a['年月']).localeCompare(String(b['年月']));
+  const ei = DATA['預估收入'].filter(x => x['案場ID'] === pid).sort(srt), ee = DATA['預估支出'].filter(x => x['案場ID'] === pid).sort(srt);
+  const ops = (sh,id) => `<button class="btn btn-dark btn-sm" onclick="openSubEdit('${sh}','${id}')">✎</button> <button class="del-btn" onclick="deleteSubItem('${sh}','${id}')">✕</button>`;
+  return `<div style="display:flex;gap:8px;margin-bottom:10px;flex-wrap:wrap"><button class="btn btn-primary btn-sm" onclick="openSubEdit('預估收入',null)">+ 預估收入</button><button class="btn btn-primary btn-sm" onclick="openSubEdit('預估支出',null)">+ 預估支出</button></div>
+  <div style="font-weight:700;margin:6px 0">預估收入（預計入帳，勾選「實際完成」）</div>
+  <table><thead><tr><th>年月</th><th>方式</th><th>預估金額</th><th>預計入帳日</th><th>實際完成</th><th>操作</th></tr></thead><tbody>${ei.length ? ei.map(x => `<tr><td>${escapeHtml(x['年月'])}</td><td>${escapeHtml(x['方式'])}</td><td>${fmt(x['預估金額'])}</td><td>${toDateStr(x['預計入帳日'])}</td><td>${x['已完成'] ? '✅ ' + toDateStr(x['完成日期']) : '—'}</td><td>${ops('預估收入', x['預估收入ID'])}</td></tr>`).join('') : '<tr><td colspan="6" class="empty">尚無資料</td></tr>'}</tbody></table>
+  <div style="font-weight:700;margin:14px 0 6px">預估支出（每月、每類別）</div>
+  <table><thead><tr><th>年月</th><th>類別</th><th>預估金額</th><th>備註</th><th>操作</th></tr></thead><tbody>${ee.length ? ee.map(x => `<tr><td>${escapeHtml(x['年月'])}</td><td>${escapeHtml(x['類別'])}</td><td>${fmt(x['預估金額'])}</td><td>${escapeHtml(x['備註']||'')}</td><td>${ops('預估支出', x['預估支出ID'])}</td></tr>`).join('') : '<tr><td colspan="5" class="empty">尚無資料</td></tr>'}</tbody></table>`;
 }
 function openBudgetEdit() {
   openSubEdit('案場預算', currentProjectId);
@@ -1095,6 +1039,25 @@ function renderSubForm(sheetName, r, defaultType) {
       <div class="full"><label>備註</label><textarea id="sf-note">${escapeHtml(r['備註']||'')}</textarea></div>
     </div>`;
   }
+  if (sheetName === '預估收入') {
+    const now = new Date(), ym = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+    return `<div class="form-grid">
+      <div><label>年月 *</label><input type="month" id="sf-ym" value="${r['年月']||ym}"></div>
+      <div><label>方式</label><select id="sf-kind"><option ${r['方式']==='現金'?'selected':''}>現金</option><option ${r['方式']==='支票'?'selected':''}>支票</option></select></div>
+      <div><label>預估金額</label><input type="number" id="sf-est-amt" value="${r['預估金額']||0}"></div>
+      <div><label>預計入帳日</label><input type="date" id="sf-eta" value="${toDateStr(r['預計入帳日'])}"></div>
+      <div><label><input type="checkbox" id="sf-done" style="width:auto" ${r['已完成']?'checked':''}> 實際完成</label></div>
+      <div><label>完成日期</label><input type="date" id="sf-done-date" value="${toDateStr(r['完成日期'])}"></div>
+      <div class="full"><label>備註</label><textarea id="sf-note">${escapeHtml(r['備註']||'')}</textarea></div></div>`;
+  }
+  if (sheetName === '預估支出') {
+    const now = new Date(), ym = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
+    return `<div class="form-grid">
+      <div><label>年月 *</label><input type="month" id="sf-ym" value="${r['年月']||ym}"></div>
+      <div><label>類別</label><select id="sf-cat">${['材料','工數','發包','折讓','其他'].map(c => `<option ${r['類別']===c?'selected':''}>${c}</option>`).join('')}</select></div>
+      <div><label>預估金額</label><input type="number" id="sf-est-amt" value="${r['預估金額']||0}"></div>
+      <div class="full"><label>備註</label><textarea id="sf-note">${escapeHtml(r['備註']||'')}</textarea></div></div>`;
+  }
   if (sheetName === '案場預算') {
     return `<div class="form-grid">
       <div style="color:var(--dim);font-size:12px" class="full">設定本案場的成本基準線（Cost Baseline），之後每個類別的實際支出都會拿來跟這裡比對執行率。</div>
@@ -1110,10 +1073,10 @@ function renderSubForm(sheetName, r, defaultType) {
     const type = r['類型'] || defaultType || '材料設備';
     const vendorOptions = '<option value="">選擇廠商</option>' + DATA['廠商主檔'].map(v => `<option value="${v['廠商ID']}" ${r['廠商ID']===v['廠商ID']?'selected':''}>${escapeHtml(v['統一編號']||'—')} ${escapeHtml(v['廠商名稱'])}</option>`).join('');
     const workerOptions = '<option value="">選擇人員</option>' + DATA['點工人員主檔'].map(w => `<option value="${w['人員ID']}" ${r['點工人員ID']===w['人員ID']?'selected':''}>${escapeHtml(w['姓名'])}</option>`).join('');
-    const isVendor = type === '材料設備' || type === '發票-發包' || type === '發票-點工';
+    const isVendor = type === '材料設備' || type === '發票-發包' || type === '發票-點工' || type === '其他';
     const isWorker = type === '報酬單-點工' || type === '現金-點工';
     return `<div class="form-grid">
-      <div><label>類型 *</label><select id="sf-type" onchange="reopenExpenseWithType(this.value)"><option value="材料設備" ${type==='材料設備'?'selected':''}>材料設備</option><option value="發票-發包" ${type==='發票-發包'?'selected':''}>發票-發包</option><option value="發票-點工" ${type==='發票-點工'?'selected':''}>發票-點工</option><option value="報酬單-點工" ${type==='報酬單-點工'?'selected':''}>報酬單-點工</option><option value="現金-點工" ${type==='現金-點工'?'selected':''}>現金-點工</option></select></div>
+      <div><label>類型 *</label><select id="sf-type" onchange="reopenExpenseWithType(this.value)"><option value="材料設備" ${type==='材料設備'?'selected':''}>材料設備</option><option value="發票-發包" ${type==='發票-發包'?'selected':''}>發票-發包</option><option value="發票-點工" ${type==='發票-點工'?'selected':''}>發票-點工</option><option value="報酬單-點工" ${type==='報酬單-點工'?'selected':''}>報酬單-點工</option><option value="現金-點工" ${type==='現金-點工'?'selected':''}>現金-點工</option><option value="其他" ${type==='其他'?'selected':''}>其他</option></select></div>
       <div><label>日期</label><input type="date" id="sf-date" value="${toDateStr(r['日期'])||new Date().toISOString().slice(0,10)}"></div>
       ${isVendor ? `
         <div class="full"><label>廠商 *</label><select id="sf-vendor">${vendorOptions}</select></div>
@@ -1134,6 +1097,9 @@ function renderSubForm(sheetName, r, defaultType) {
         ` : ''}
       ` : ''}
       <div class="full"><label>備註</label><textarea id="sf-note">${escapeHtml(r['備註']||'')}</textarea></div>
+      <div><label>會計備註：撥款狀態</label><select id="sf-pay"><option ${r['撥款狀態']==='已撥款'?'selected':''}>已撥款</option><option ${(r['撥款狀態']||'尚未撥款')==='尚未撥款'?'selected':''}>尚未撥款</option><option ${r['撥款狀態']==='撥部份款項'?'selected':''}>撥部份款項</option></select></div>
+      <div><label>撥款日期</label><input type="date" id="sf-pay-date" value="${toDateStr(r['撥款日期'])}"></div>
+      <div><label>已撥金額（部份撥款）</label><input type="number" id="sf-pay-amt" value="${r['已撥金額']||0}"></div>
     </div>`;
   }
   return '<div class="empty">未知的表單</div>';
@@ -1203,6 +1169,18 @@ async function saveSubItem() {
     data['對應發票ID'] = document.getElementById('sf-inv-ids').value.trim();
     data['備註'] = document.getElementById('sf-note').value.trim();
   }
+  if (sheetName === '預估收入') {
+    data['年月'] = document.getElementById('sf-ym').value; data['方式'] = document.getElementById('sf-kind').value;
+    data['預估金額'] = Number(document.getElementById('sf-est-amt').value)||0; data['預計入帳日'] = document.getElementById('sf-eta').value;
+    data['已完成'] = document.getElementById('sf-done').checked; data['完成日期'] = document.getElementById('sf-done-date').value || (data['已完成'] ? new Date().toISOString().slice(0,10) : '');
+    data['備註'] = document.getElementById('sf-note').value.trim();
+    if (!data['年月']) { alert('年月必填'); return; }
+  }
+  if (sheetName === '預估支出') {
+    data['年月'] = document.getElementById('sf-ym').value; data['類別'] = document.getElementById('sf-cat').value;
+    data['預估金額'] = Number(document.getElementById('sf-est-amt').value)||0; data['備註'] = document.getElementById('sf-note').value.trim();
+    if (!data['年月']) { alert('年月必填'); return; }
+  }
   if (sheetName === '案場預算') {
     data['材料預算'] = Number(document.getElementById('sf-budget-material').value)||0;
     data['發包預算'] = Number(document.getElementById('sf-budget-sub').value)||0;
@@ -1214,9 +1192,12 @@ async function saveSubItem() {
   if (sheetName === '支出登記') {
     const type = document.getElementById('sf-type').value;
     data['類型'] = type;
+    data['撥款狀態'] = document.getElementById('sf-pay').value;
+    data['撥款日期'] = document.getElementById('sf-pay-date').value;
+    data['已撥金額'] = Number(document.getElementById('sf-pay-amt').value)||0;
     data['日期'] = document.getElementById('sf-date').value;
     data['備註'] = document.getElementById('sf-note').value.trim();
-    if (type === '材料設備' || type === '發票-發包' || type === '發票-點工') {
+    if (type === '材料設備' || type === '發票-發包' || type === '發票-點工' || type === '其他') {
       data['廠商ID'] = document.getElementById('sf-vendor').value;
       data['發票號碼'] = document.getElementById('sf-inv-no').value.trim();
       data['項目'] = document.getElementById('sf-item').value.trim();
