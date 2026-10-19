@@ -152,7 +152,13 @@ CREATE INDEX IF NOT EXISTS idx_payment_project     ON "收款登記"("案場ID")
 CREATE INDEX IF NOT EXISTS idx_expense_project     ON "支出登記"("案場ID");
 CREATE INDEX IF NOT EXISTS idx_budget_project       ON "案場預算"("案場ID");
 
--- ===== v3 升級（預估收入／預估支出／撥款狀態）=====
+-- =====================================================================
+-- 戰情室 v3 資料庫升級：預估收入、預估支出、撥款狀態
+-- 貼到 Neon SQL Editor 執行即可；可重複執行，不會動到既有資料
+-- =====================================================================
+
+-- 1) 預估收入：每案場、每月、現金/支票各一筆，記錄預計入帳日；已完成＝後台勾選「實際完成」
+CREATE TABLE IF NOT EXISTS "預估收入" (
   "預估收入ID"  TEXT PRIMARY KEY,
   "案場ID"      TEXT REFERENCES "案場主檔"("案場ID") ON DELETE CASCADE,
   "年月"        TEXT,                 -- YYYY-MM
