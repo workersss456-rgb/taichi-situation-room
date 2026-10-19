@@ -997,15 +997,15 @@ function renderDetailBody() {
   const profit = totalReceived - totalExpense;
   const contractRate = contractTotal > 0 ? (totalReceived / contractTotal * 100).toFixed(1) : '—';
 
+  // 已移除分頁（資料與 Excel 匯入匯出保留，函式保留可隨時還原）：📅 月度請款、🧾 發票登記
   const subtabs = [
     { key: 'contract', label: '📋 合約明細+追加' },
     { key: 'budget', label: '🧮 預算控制' },
     { key: 'estimate', label: '🎯 預估收支' },
-    { key: 'monthly', label: '📅 月度請款' },
-    { key: 'invoice', label: '🧾 發票登記' },
     { key: 'payment', label: '💰 收款登記' },
     { key: 'expense', label: '💸 支出登記' }
   ];
+  if (!subtabs.some(t => t.key === currentDetailSubtab)) currentDetailSubtab = 'contract';
 
   const now = new Date();
   const defaultYm = now.getFullYear() + '-' + String(now.getMonth()+1).padStart(2,'0');
@@ -1034,8 +1034,6 @@ function renderSubpanelContent(name) {
   if (name === 'contract') return renderContractPanel();
   if (name === 'budget') return renderBudgetPanel();
   if (name === 'estimate') return renderEstimatePanel();
-  if (name === 'monthly') return renderMonthlyPanel();
-  if (name === 'invoice') return renderInvoicePanel();
   if (name === 'payment') return renderPaymentPanel();
   if (name === 'expense') return renderExpensePanel();
   return '';
