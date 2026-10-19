@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS "案場主檔" (
   "案場ID"        TEXT PRIMARY KEY,
   "案場名稱"      TEXT NOT NULL,
   "業主"          TEXT,
+  "所屬公司"      TEXT,
   "主約未稅金額"  NUMERIC DEFAULT 0,
   "主約稅額"      NUMERIC DEFAULT 0,
   "主約含稅金額"  NUMERIC DEFAULT 0,
@@ -18,6 +19,7 @@ CREATE TABLE IF NOT EXISTS "案場主檔" (
   "備註"          TEXT,
   "更新時間"      TIMESTAMPTZ DEFAULT now()
 );
+ALTER TABLE "案場主檔" ADD COLUMN IF NOT EXISTS "所屬公司" TEXT;
 
 CREATE TABLE IF NOT EXISTS "合約明細" (
   "明細ID"    TEXT PRIMARY KEY,
