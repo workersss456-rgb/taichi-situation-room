@@ -6,13 +6,10 @@ const express = require('express');
 const cors = require('cors');
 const jwt = require('jsonwebtoken');
 const { Pool } = require('pg');
-const path = require('path');
 
 const app = express();
 app.use(express.json({ limit: '5mb' }));
-
-// 靜態文件服務（提供 index.html）
-app.use(express.static(path.join(__dirname, '..')));
+const path = require('path');
 
 const ALLOWED_ORIGIN = process.env.ALLOWED_ORIGIN || '*';
 app.use(cors({ origin: ALLOWED_ORIGIN }));
@@ -170,10 +167,7 @@ app.get('/api/data', async (req, res) => {
 // ---------------------------------------------------------------------
 app.post('/api/action', async (req, res) => {
   const { action, sheetName, rowId, data, _clientVersion } = req.body || {};
-  const auth = getAuth(req);
-  if (!auth || !auth.authorized) {
-    return res.status(401).json({ status: 'unauthorized', message: '請先登入授權帳號才能編輯' });
-  }
+  // 內部系統：免登入即可讀寫（依需求取消 JWT 驗證）
   const cfg = TABLES[sheetName];
   if (!cfg) return res.status(400).json({ status: 'error', message: '未知的分頁：' + sheetName });
 
@@ -245,6 +239,7 @@ app.post('/api/action', async (req, res) => {
     client.release();
   }
 });
+
 
 // --------- 儀表板 API ---------
 // GET /api/dashboard?year=2026&month=10 — 月初看板（KPI、各案場收支、每日數據）
@@ -379,7 +374,8 @@ app.get('/api/dashboard', async (req, res) => {
   }
 });
 
-app.get('/', (req, res) => res.send('太綺戰情室 API 運作中'));
+app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'index.html')));
+app.get('/api/health', (req, res) => res.send('太綺戰情室 API 運作中'));
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log('Server listening on port ' + PORT));
