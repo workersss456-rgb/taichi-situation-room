@@ -1,128 +1,69 @@
-# 太綺戰情室 — 部署與資料匯入指南
+# 太綺戰情室 — 部署與更新指南
 
-把原本「Google Apps Script + Google Sheets」的架構，換成 **GitHub Pages（前端）+ Render（後端 API）+ Neon（Postgres 資料庫）**。
+架構：**Render**（Node/Express 後端 + 前端 index.html）＋ **Neon**（Postgres 資料庫）＋ **GitHub**（程式碼版本管理）。
+前端與 API 同一個網域，不需要 GitHub Pages，也不需要設定 CORS。
 
 ---
 
 ## 目錄結構
 
 ```
-taichi/
-├── database/
-│   ├── schema.sql                       ← 資料表結構，Neon 上先執行這個
-│   ├── seed_current.sql                 ← 目前新版資料庫裡「已經有」的資料（廠商、支出、發票…）
-│   └── seed_legacy_PENDING_REVIEW.sql   ← 舊戰情表的 15 個案場歷史資料，⚠️需要你確認過才能執行
+├── index.html                  ← 前端（放在根目錄；server.js 會從這裡讀取）
+├── render.yaml                 ← Render 部署設定（rootDir: server）
 ├── server/
-│   ├── server.js                        ← 後端 API（Express）
+│   ├── server.js               ← 後端 API（Express）
 │   ├── package.json
-│   └── .env.example                     ← 環境變數範例
-├── render.yaml                          ← Render 一鍵部署設定（選用）
-└── index.html                           ← 前端頁面（改好顏色/手機版/新的登入方式，跟 GitHub Pages 網址對應，放在根目錄）
+│   └── .env.example            ← 本機測試用環境變數範例（不要上傳 .env）
+├── database/
+│   ├── schema.sql              ← 全新資料庫：完整建表（含 v3）
+│   ├── migration_v3.sql        ← 既有資料庫：只加 v3 的表與欄位，可重複執行
+│   └── seed_current.sql        ← 目前資料（廠商、支出、發票、請款、變更記錄）；可重複執行
+├── scripts/
+│   └── migrate_current_data.py ← 舊資料搬移用，日常不需要
+└── .gitignore                  ← 會排除 .env 與 node_modules
 ```
 
 ---
 
-## 第一步：Neon（資料庫）
+## 一、Neon（資料庫）
 
-1. 到 [neon.tech](https://neon.tech) 註冊、建立一個新專案（免費方案就夠用）。
-2. 進入專案的 **SQL Editor**，貼上 `database/schema.sql` 整份內容並執行。
-3. 接著貼上 `database/seed_current.sql` 整份內容並執行 — 這會把廠商主檔（50 筆）、支出登記（13 筆）、發票登記、月度請款、變更記錄都匯入，並且先幫 P0001~P0008 建立**佔位案場**（因為原始檔案裡「案場主檔」那個分頁其實是空的，這 8 個案場目前完全沒有名稱/業主/金額資料，見下方「⚠️ 需要你確認的事」）。
-4. 舊版戰情表的 15 個案場歷史資料，**先不要**急著執行 `seed_legacy_PENDING_REVIEW.sql`，看完下面的說明再決定。
-5. 回到 Dashboard → **Connection string**，選 "Pooled connection"，複製起來，等一下 Render 會用到（長得像 `postgresql://user:pass@ep-xxxx.neon.tech/neondb?sslmode=require`）。
+- **全新資料庫**：SQL Editor 貼上 `database/schema.sql` 整份執行。再貼 `database/seed_current.sql` 執行（選用，要有目前的廠商與支出資料才需要）。
+- **既有資料庫（已有 v2 資料）**：只執行 `database/migration_v3.sql`。不要重跑 schema.sql 以外的舊版檔案。
+- 複製 Dashboard → Connection string（選 **Pooled connection**），給 Render 用。
 
-## 第二步：Render（後端 API）
+## 二、GitHub（程式碼）
 
-1. 把 `server/` 這個資料夾（連同 `package.json`、`server.js`）放進一個 GitHub repo（可以跟前端同一個 repo，也可以分開）。
-2. 到 [render.com](https://render.com) → New → Web Service → 選剛剛的 repo。
-   - Root Directory：`server`（如果 server 資料夾不是放在 repo 根目錄）
-   - Build Command：`npm install`
-   - Start Command：`npm start`
-3. 在 Render 的 Environment 頁籤設定這幾個變數（參考 `server/.env.example`）：
-   - `DATABASE_URL`：上一步從 Neon 複製的連線字串
-   - `JWT_SECRET`：隨便一串夠長的亂碼
-   - `ADMIN_PASSWORD`：你自己要用來登入系統的密碼
-   - `ALLOWED_ORIGIN`：你的 GitHub Pages 網址，例如 `https://workersss456-rgb.github.io`
-4. 部署完成後，Render 會給你一個網址，例如 `https://taichi-situation-room-api.onrender.com`。打開它，看到「太綺戰情室 API 運作中」就表示成功了。
+用 GitHub Desktop：
+1. 把要更新的檔案覆蓋進 repo 資料夾（見上方目錄結構）。
+2. 確認變更清單裡**沒有 `.env`**。
+3. 填 Summary → **Commit to main** → **Push origin**。
 
-> Render 免費方案沒有流量會自動休眠，第一次打開網站時 API 可能要等 30 秒~1 分鐘才會醒來，是正常的。
+## 三、Render（後端＋前端）
 
-## 第三步：GitHub Pages（前端）
+首次建立：New → Web Service → 選此 repo。Root Directory 填 `server`，Build Command `npm install`，Start Command `npm start`（`render.yaml` 已寫好，也可以直接用 Blueprint）。
 
-1. 打開 `index.html`（在專案根目錄），找到最上面這一行：
-   ```js
-   const API_BASE_URL = "https://YOUR-RENDER-SERVICE.onrender.com";
-   ```
-   換成你在第二步拿到的 Render 網址（結尾不要加斜線）。
-2. 把這個檔案覆蓋到你現有的 GitHub Pages repo（`workersss456-rgb.github.io/taichi-situation-room/`）的**根目錄** `index.html`，commit、push。
-3. 打開網站，右上角輸入 `ADMIN_PASSWORD` 登入，就可以開始編輯資料了。
+**Environment 頁籤**設定以下變數（都不放在 repo 裡）：
 
----
+| 變數 | 說明 |
+|---|---|
+| `DATABASE_URL` | Neon 的 Pooled connection 字串 |
+| `JWT_SECRET` | 一長串亂碼，簽發登入 token 用 |
+| `ADMIN_PASSWORD` | 登入畫面要輸入的管理密碼 |
+| `ALLOWED_ORIGIN` | 前端與 API 同網域，可留 `*` 或填 Render 網址 |
 
-## ⚠️ 需要你確認的事：P0001~P0008 到底是不是舊的 15 個案場？
+推送後 Render 會自動部署（Events 頁籤可看進度）。若沒有自動部署，Manual Deploy → Deploy latest commit。
 
-檢查資料後發現一件需要你決定的事，直接猜的話有可能讓營收/支出被重複計算，所以先跟你確認：
+## 四、驗證
 
-- 原始 Excel 裡有兩批案場資料：
-  1. **新版資料**：目前已經在用的 8 個案場（`P0001`~`P0008`），已經有支出登記、發票登記、月度請款的紀錄，但「案場主檔」分頁本身是空的 — 也就是完全沒有存到這 8 個案場的名稱、業主、合約金額！
-  2. **舊版戰情表資料**：`案場` / `月度紀錄` / `追加減` 這三個分頁，是另一套小寫 `p1`~`p15` 編號、共 15 個案場的完整歷史（名稱、業主、合約金額、每月請款/實支）。
+1. `https://taichi-situation-room.onrender.com/api/health` → 應顯示「太綺戰情室 API 運作中」。
+2. 打開首頁，按 **Ctrl+F5**（Mac：Cmd+Shift+R）強制重新整理。
+3. 依序測試：儀表板 KPI、案場詳情的預估收支、支出的撥款狀態、📤 匯出 Excel、📄 下載匯入模板。
 
-- 比對數字後發現，`P0001` 的資料（2025-11 預估請款 2,109,669、發票 1,582,252、項目「基礎完成 筏基 10%」）跟舊資料裡 `p3`「11404鎮曜營造-環中路」（合約 21,096,688，正好是 2,109,669 的 10 倍，115/01~04 每月實際請款也都是 1,582,252）**高度吻合，很可能是同一個案場**，只是重新用新系統輸入了一次。
-
-- 但其餘 `P0002`~`P0008` 對不對得上舊資料裡的哪個 `p1`~`p15`，光看資料看不出來（沒有共同的關鍵字/金額可以比對）。
-
-**這代表如果我直接把 15 個舊案場當成全新案場匯入，`P0001` 跟 `p3` 的營收/支出很可能會被算兩次。**
-
-我準備了 `database/seed_legacy_PENDING_REVIEW.sql`，把舊的 15 個案場先暫時編成 `P1001`~`P1015`（不會跟現有的撞號），對照表寫在檔案最上面。麻煩你看過之後告訴我：
-
-1. 這 15 個舊案場，跟現在的 `P0001`~`P0008` 有哪幾個其實是「同一個案場」？（例如：`p3` = `P0001`）
-2. 剩下對不上、或本來就已經結案的案場，要「當作新案場整批匯入」還是「不用匯入、只是歷史備查就好」？
-3. `P0001`~`P0008` 目前完全沒有名稱/業主/合約金額（我先放了「⚠️ 請填寫案場名稱」的佔位資料），這 8 筆的正確資料能不能提供？
-
-你確認後，我可以幫你把 `seed_legacy_PENDING_REVIEW.sql` 修改成正確版本（該合併的合併、該調整 ID 的調整），再一次執行到 Neon 就完成了，之後也能直接在網頁上把佔位名稱改掉。
+免費方案閒置後第一次開啟會較慢（冷啟動），等幾十秒即可。
 
 ---
 
-## 這次順便做的優化
+## ⚠️ 安全注意
 
-- **顏色**：原本是深色（近黑）底、對比不足，已經整套換成淺色主題（白色卡片 + 淺灰底 + 加深文字對比），閱讀性應該有明顯改善。
-- **手機版**：加了響應式排版 —— 儀表板卡片改成兩欄、彈出視窗改成貼底全寬、頁籤/表格可以左右滑動、輸入框字級固定 16px（避免 iPhone 自動放大畫面跳版）。
-- **登入方式**：因為前端現在是純靜態網頁（GitHub Pages），沒辦法再用 Google Apps Script 那種「伺服器端」的 Google 登入流程，所以改成「單一管理密碼」登入（存在 Render 的環境變數，不會外流到程式碼或網頁原始碼），未登入時一樣是唯讀、身分證字號一樣會被後端遮蔽。之後如果想恢復 Google 帳號登入也可以，只是需要另外申請一組指向 Render 網址的 OAuth 用戶端，會比較花工。
-
-## v2：成本控制（預算基準線）+ 月報匯出
-
-這次參考專案管理裡「成本基準線（Cost Baseline）」與「預算 vs 實際（Budget vs Actual）」的概念，補了原本系統缺的那塊：
-
-- **案場預算**：新增一張表，每個案場可以設定「材料 / 發包 / 點工(人事) / 其他」四個類別的預算金額，當作這個案場的成本基準線。到案場詳情 → 🧮 預算控制，就能看到每個類別「預算 vs 實際支出 vs 差異 vs 執行率」，以及系統自動比對「成本執行率」跟「合約達成率」兩個百分比 —— 概念上接近簡化版的 EVM（實獲值管理）：如果花錢的速度（成本執行率）明顯比收款的速度（進度代理指標）快，會跳出紅色警示；反過來則提示可能有成本漏登。
-- **儀表板新增「各案場成本執行率」卡片**：一眼看到所有案場的預算健康度，不用逐一點開每個案場才知道誰超支。
-- **月報匯出（Excel）**：案場詳情頁最上面可以選年月，按「匯出當月月報」或「匯出全專案累計報表」，會在瀏覽器端直接產生一份 `.xlsx`，裡面包含：
-  - 摘要（合約/請款/預算對比總覽）
-  - 請款明細（發票登記)
-  - 材料支出
-  - 發包支出
-  - 人事成本（含代扣所得稅/二代健保/實際支付金額）
-
-  這份檔案是用瀏覽器端的 SheetJS 直接從已經讀進來的資料產生，不用再打一次後端 API，所以匯出速度很快、也不會受 Render 免費方案冷啟動影響。
-
-- 資料庫新增了 `案場預算` 這張表（`database/schema.sql` 已更新），如果你的 Neon 資料庫是之前就建好的，記得補跑一次：
-  ```sql
-  CREATE TABLE IF NOT EXISTS "案場預算" (
-    "案場ID"      TEXT PRIMARY KEY REFERENCES "案場主檔"("案場ID") ON DELETE CASCADE,
-    "材料預算"    NUMERIC DEFAULT 0,
-    "發包預算"    NUMERIC DEFAULT 0,
-    "點工預算"    NUMERIC DEFAULT 0,
-    "其他預算"    NUMERIC DEFAULT 0,
-    "預計完工日"  TEXT,
-    "備註"        TEXT,
-    "更新時間"    TIMESTAMPTZ DEFAULT now()
-  );
-  ```
-  （這段也已經包含在最新版的 `schema.sql` 裡，新建資料庫的話直接整份重跑一次即可，`CREATE TABLE IF NOT EXISTS` 不會動到已經存在的其他表。）
-
-- `server/server.js` 也要換成新版，多了處理 `案場預算`「一案場一筆、寫入即覆蓋」的 upsert 邏輯。
-
-> 關於「人事成本」的小提醒：目前損益計算（毛利、儀表板）對「報酬單-點工」是用「實際支付金額」（= 小計 − 代扣所得稅 − 代扣二代健保，也就是真正匯給工人的錢）在算支出，這部分沿用你原本系統的既有邏輯沒有更動。但嚴格說，公司的總現金流出其實是「小計」全額（代扣的稅跟健保公司還是要繳出去，只是繳給政府不是給工人），只是用「實際支付金額」入帳不影響「這個月轉出去多少現金」的角度也說得通。月報的「人事成本」分頁已經把小計、代扣稅、代扣健保、實際支付金額都列出來，你可以自己依照記帳習慣判斷要看哪個數字；如果你想把主要損益計算也改成用「小計」全額，跟我說一聲，我可以幫你調整，但這會讓之前所有月份的毛利數字重新計算，數字會跟現在看到的不一樣，想先讓你知道再決定要不要動。
-
-## 之後如果要繼續開發
-
-- 資料庫欄位直接沿用原本試算表的中文欄位名稱，前端程式碼幾乎不用改動 calc 函式；新增欄位時記得 `database/schema.sql` 跟 `server/server.js` 裡的 `TABLES` 設定要一起改。
-- `server.js` 用簡易的「資料版本號」做防止覆蓋的機制（跟原本 GAS 版本邏輯一樣），單一管理者使用基本上夠用；如果之後有多人同時編輯的需求，會建議做成逐欄位的樂觀鎖定或即時同步。
+- **`.env` 不可上傳 GitHub。** 若已經推送過，請在 Neon 重設資料庫密碼、換一組 `JWT_SECRET` 與 `ADMIN_PASSWORD`，並更新 Render 的環境變數。
+- 目前系統為免登入（內部系統），網址公開的話任何人都能讀寫資料。建議之後加一組共用 PIN。
