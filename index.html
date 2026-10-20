@@ -243,8 +243,9 @@
   <!-- 案場列表 -->
   <div class="tab-panel" id="tab-projects">
     <div class="card">
-      <div class="card-head"><span>🏗 進行中案場</span><button class="btn btn-primary btn-sm" onclick="openProjectEdit(null)">+ 新增案場</button></div>
+      <div class="card-head"><span id="proj-title">🏗 案場</span><button class="btn btn-primary btn-sm" onclick="openProjectEdit(null)">+ 新增案場</button></div>
       <div class="card-body">
+        <div class="subtabs" id="proj-status-tabs" style="margin-bottom:10px"></div>
         <table>
           <thead><tr><th>案場ID</th><th>案場名稱</th><th>業主</th><th>主約含稅金額</th><th>付款條件</th><th>狀態</th><th>操作</th></tr></thead>
           <tbody id="projects-list"></tbody>
@@ -903,10 +904,35 @@ function inRange(d, from, to) {
 // =====================================================================
 // 案場列表
 // =====================================================================
+// 案場列表：狀態篩選（預設進行中）＋ 依案場編號由舊到新排序
+const PROJ_STATUS_OPTS = ['進行中', '停工', '結案', '全部'];
+let projStatusFilter = '進行中';
+// 排序：舊版 P0001 系列在最前（依數字）→ 新格式 TC-115-001 依年份、公司代碼、流水號
+function projectSortKey(id) {
+  const s = String(id || '');
+  let m = s.match(/^([A-Z]{2})-(\d{3})-(\d+)$/);
+  if (m) return [1, Number(m[2]), m[1], Number(m[3])];
+  m = s.match(/^P(\d+)$/i);
+  if (m) return [0, Number(m[1]), '', 0];
+  return [2, 0, s, 0];
+}
+function compareProjectId(a, b) {
+  const x = projectSortKey(a), y = projectSortKey(b);
+  return (x[0] - y[0]) || (x[1] - y[1]) || String(x[2]).localeCompare(String(y[2])) || (x[3] - y[3]);
+}
+function setProjectStatusFilter(s) { projStatusFilter = s; renderProjects(); }
 function renderProjects() {
   const tbody = document.getElementById('projects-list');
+  const all = [...DATA['案場主檔']].sort((a, b) => compareProjectId(a['案場ID'], b['案場ID']));
+  const countOf = s => s === '全部' ? all.length : all.filter(p => (p['狀態'] || '') === s).length;
+  document.getElementById('proj-status-tabs').innerHTML = PROJ_STATUS_OPTS.map(s =>
+    `<button class="subtab-btn ${projStatusFilter === s ? 'active' : ''}" onclick="setProjectStatusFilter('${s}')">${s}（${countOf(s)}）</button>`
+  ).join('');
+  document.getElementById('proj-title').innerText = '🏗 案場列表：' + projStatusFilter;
+  const list = projStatusFilter === '全部' ? all : all.filter(p => (p['狀態'] || '') === projStatusFilter);
   if (!DATA['案場主檔'].length) { tbody.innerHTML = '<tr><td colspan="7" class="empty">尚無案場資料，請點右上「新增案場」</td></tr>'; return; }
-  tbody.innerHTML = DATA['案場主檔'].map(p => {
+  if (!list.length) { tbody.innerHTML = `<tr><td colspan="7" class="empty">目前沒有「${projStatusFilter}」的案場</td></tr>`; return; }
+  tbody.innerHTML = list.map(p => {
     const total = calcContractTotalIncl(p['案場ID']);
     return `<tr>
       <td>${escapeHtml(p['案場ID'])}</td>
