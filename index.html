@@ -954,7 +954,7 @@ function openProjectEdit(id) {
       <div class="full"><label>案場名稱 *</label><input type="text" id="pf-name" value="${escapeHtml(p['案場名稱']||'')}"></div>
       <div class="full"><label>業主</label><input type="text" id="pf-owner" value="${escapeHtml(p['業主']||'')}"></div>
       <div><label>所屬公司 *</label><select id="pf-company"><option value="">請選擇</option><option value="TC" ${p['所屬公司']==='TC'?'selected':''}>太綺TC</option><option value="BJ" ${p['所屬公司']==='BJ'?'selected':''}>本紀BJ</option></select></div>
-      ${id ? `<div><label>案場ID（系統產生）</label><input type="text" value="${escapeHtml(id)}" readonly></div>` : `<div><label>年份（民國）*</label><input type="text" id="pf-roc" maxlength="3" value="${new Date().getFullYear()-1911}" placeholder="例 115"></div>`}
+      ${id ? `<div><label>案場ID（可修正，會同步更新相關資料）</label><input type="text" id="pf-id-edit" value="${escapeHtml(id)}"></div>` : `<div><label>年份（民國）*</label><input type="text" id="pf-roc" maxlength="3" value="${new Date().getFullYear()-1911}" placeholder="例 115"></div>`}
       <div><label>主約未稅金額</label><input type="number" id="pf-untax" value="${p['主約未稅金額']||0}" oninput="recalcTax()"></div>
       <div><label>主約稅額</label><input type="number" id="pf-tax" value="${p['主約稅額']||0}" oninput="recalcTax()"></div>
       <div><label>主約含稅金額（自動算）</label><input type="number" id="pf-incl" value="${mainInclOf(p)}" readonly></div>
@@ -978,7 +978,7 @@ async function saveProject() {
   if (!isAuthorized) { alert('未登入授權帳號，無法儲存'); return; }
   const id = document.getElementById('pf-id').value;
   const data = {
-    '案場ID': id || undefined,
+    '案場ID': id ? ((document.getElementById('pf-id-edit') || {}).value || id).trim() : undefined,
     '案場名稱': document.getElementById('pf-name').value.trim(),
     '業主': document.getElementById('pf-owner').value.trim(),
     '所屬公司': document.getElementById('pf-company').value,
@@ -993,6 +993,7 @@ async function saveProject() {
   };
   if (!data['案場名稱']) { alert('案場名稱必填'); return; }
   if (!data['所屬公司']) { alert('請選擇所屬公司'); return; }
+  if (id && !/^[A-Za-z0-9-]{3,20}$/.test(data['案場ID'])) { alert('案場ID 只能使用英文、數字與「-」，長度 3～20'); return; }
   if (!id) {
     const roc = document.getElementById('pf-roc').value.trim();
     if (!/^\d{3}$/.test(roc)) { alert('年份請輸入民國年 3 碼，例如 115'); return; }
