@@ -103,6 +103,29 @@ async function newProjectId(client, data) {
   return prefix + String(max + 1).padStart(3, '0');
 }
 
+// 案場ID 可手動修正：會連同所有相關資料（合約、發票、收款、支出、預估、預算…）一起改號
+const PROJECT_ID_PATTERN = /^[A-Za-z0-9-]{3,20}$/;
+async function renameProject(client, oldId, newId) {
+  if (!PROJECT_ID_PATTERN.test(newId)) throw new Error('案場ID 只能使用英文、數字與「-」，長度 3～20');
+  const dup = await client.query('SELECT 1 FROM "案場主檔" WHERE "案場ID" = $1', [newId]);
+  if (dup.rowCount) throw new Error('案場ID「' + newId + '」已存在，請換一個');
+  const cols = (await client.query(
+    `SELECT column_name AS c FROM information_schema.columns WHERE table_schema='public' AND table_name='案場主檔' AND column_name <> '案場ID'`
+  )).rows.map(r => q(r.c));
+  const children = (await client.query(
+    `SELECT table_name AS t FROM information_schema.columns WHERE table_schema='public' AND column_name='案場ID' AND table_name <> '案場主檔'`
+  )).rows.map(r => r.t);
+  // 1) 先建立新 ID 的案場主檔（複製原資料）→ 2) 子資料改指向新 ID → 3) 刪除舊的案場主檔
+  await client.query(
+    `INSERT INTO "案場主檔" ("案場ID", ${cols.join(',')}) SELECT $1, ${cols.join(',')} FROM "案場主檔" WHERE "案場ID" = $2`,
+    [newId, oldId]
+  );
+  for (const t of children) {
+    await client.query(`UPDATE ${q(t)} SET "案場ID" = $1 WHERE "案場ID" = $2`, [newId, oldId]);
+  }
+  await client.query('DELETE FROM "案場主檔" WHERE "案場ID" = $1', [oldId]);
+}
+
 async function nextId(client, sheetName) {
   const { idCol, prefix, pad } = TABLES[sheetName];
   const table = q(sheetName);
@@ -184,7 +207,7 @@ app.get('/api/data', async (req, res) => {
 // POST /api/action — createRow / updateRow / deleteRow
 // ---------------------------------------------------------------------
 app.post('/api/action', async (req, res) => {
-  const { action, sheetName, rowId, data: rawData, _clientVersion } = req.body || {};
+  let { action, sheetName, rowId, data: rawData, _clientVersion } = req.body || {};
   let data = rawData;
   // 內部系統：免登入即可讀寫（依需求取消 JWT 驗證）
   const cfg = TABLES[sheetName];
@@ -235,6 +258,16 @@ app.post('/api/action', async (req, res) => {
       await logChange(client, 'admin', '新增', sheetName, resultId);
     } else if (action === 'updateRow') {
       if (!rowId) throw new Error('缺少 rowId');
+      // 案場ID 有變更 → 改號（連同相關資料）
+      if (sheetName === '案場主檔' && data && data['案場ID'] !== undefined) {
+        const newId = String(data['案場ID']).trim();
+        if (newId && newId !== String(rowId)) {
+          await renameProject(client, rowId, newId);
+          await logChange(client, 'admin', '改號', sheetName, rowId, '改為 ' + newId);
+          rowId = newId;
+          resultId = newId;
+        }
+      }
       const cols = cfg.cols.filter(c => data && data[c] !== undefined);
       if (cols.length) {
         const sets = cols.map((c, i) => `${q(c)} = $${i + 2}`);
