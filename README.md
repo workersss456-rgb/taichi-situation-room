@@ -17,6 +17,9 @@
 ├── database/
 │   ├── schema.sql              ← 全新資料庫：完整建表（含 v3）
 │   ├── migration_v3.sql        ← 既有資料庫：只加 v3 的表與欄位，可重複執行
+│   ├── migration_v4.sql        ← 既有資料庫：案場主檔新增「所屬公司」，可重複執行
+│   ├── migration_v5.sql        ← 既有資料庫：預收訂金（預收扣回明細、收款類型），可重複執行
+│   ├── migration_v6.sql        ← 既有資料庫：工程請款（權責收入來源）、預收扣回改對應工程請款，可重複執行
 │   └── seed_current.sql        ← 目前資料（廠商、支出、發票、請款、變更記錄）；可重複執行
 ├── scripts/
 │   └── migrate_current_data.py ← 舊資料搬移用，日常不需要
@@ -28,7 +31,7 @@
 ## 一、Neon（資料庫）
 
 - **全新資料庫**：SQL Editor 貼上 `database/schema.sql` 整份執行。再貼 `database/seed_current.sql` 執行（選用，要有目前的廠商與支出資料才需要）。
-- **既有資料庫（已有 v2 資料）**：只執行 `database/migration_v3.sql`。不要重跑 schema.sql 以外的舊版檔案。
+- **既有資料庫（已有 v2 資料）**：依序執行 `database/migration_v3.sql`、`migration_v4.sql`、`migration_v5.sql`、`migration_v6.sql`。皆可重複執行。不要重跑 schema.sql 以外的舊版檔案。
 - 複製 Dashboard → Connection string（選 **Pooled connection**），給 Render 用。
 
 ## 二、GitHub（程式碼）
@@ -53,7 +56,11 @@
 
 推送後 Render 會自動部署（Events 頁籤可看進度）。若沒有自動部署，Manual Deploy → Deploy latest commit。
 
-## 四、驗證
+## 四、案場編號規則
+
+新增案場時選擇「所屬公司」（太綺 TC、本紀 BJ）並輸入民國年（例 115），系統自動產生編號：`公司代碼-民國年-流水號`，例如 `TC-115-001`。流水號每公司、每年從 001 開始，同時新增也不會重號。既有案場（P0001 起）編號不變。
+
+## 五、驗證
 
 1. `https://taichi-situation-room.onrender.com/api/health` → 應顯示「太綺戰情室 API 運作中」。
 2. 打開首頁，按 **Ctrl+F5**（Mac：Cmd+Shift+R）強制重新整理。
