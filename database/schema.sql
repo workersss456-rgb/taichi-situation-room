@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS "月度請款" (
 CREATE TABLE IF NOT EXISTS "發票登記" (
   "發票ID"      TEXT PRIMARY KEY,
   "案場ID"      TEXT REFERENCES "案場主檔"("案場ID") ON DELETE CASCADE,
-  "類型"        TEXT,       -- 三聯發票 / 折讓 / 扣抵
+  "類型"        TEXT,       -- 請款 / 預收 / 折讓 / 扣抵（v5 起；舊資料見 migration_v5）
   "統一編號"    TEXT,
   "發票日期"    TEXT,
   "發票號碼"    TEXT,
@@ -194,3 +194,37 @@ ALTER TABLE "支出登記" ADD COLUMN IF NOT EXISTS "已撥金額" NUMERIC DEFAU
 
 -- 4) 收款登記：對應到預估收入，勾選完成時可以連起來
 ALTER TABLE "收款登記" ADD COLUMN IF NOT EXISTS "對應預估收入ID" TEXT;
+
+-- =====================================================================
+-- 戰情室 v5：預收訂金（預收扣回）— 與 migration_v5.sql 相同，全新資料庫已含此段
+-- =====================================================================
+ALTER TABLE "案場主檔" ADD COLUMN IF NOT EXISTS "預收訂金" NUMERIC DEFAULT 0;
+ALTER TABLE "收款登記" ADD COLUMN IF NOT EXISTS "收款類型" TEXT;
+CREATE TABLE IF NOT EXISTS "預收扣回明細" (
+  "扣回ID"    TEXT PRIMARY KEY,
+  "案場ID"    TEXT REFERENCES "案場主檔"("案場ID") ON DELETE CASCADE,
+  "年月"      TEXT,
+  "發票ID"    TEXT,
+  "扣回金額"  NUMERIC DEFAULT 0,
+  "備註"      TEXT,
+  "更新時間"  TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_prepay_project ON "預收扣回明細"("案場ID");
+ALTER TABLE "發票登記" ADD COLUMN IF NOT EXISTS "發票形式" TEXT;
+UPDATE "發票登記" SET "類型" = '請款' WHERE "類型" = '三聯發票';
+UPDATE "發票登記" SET "發票形式" = '三聯式發票' WHERE "類型" = '請款' AND "發票形式" IS NULL;
+
+-- =====================================================================
+-- 戰情室 v6：工程請款＋預收扣回對應工程請款（與 migration_v6.sql 相同）
+-- =====================================================================
+CREATE TABLE IF NOT EXISTS "工程請款" (
+  "工程請款ID" TEXT PRIMARY KEY,
+  "案場ID"     TEXT REFERENCES "案場主檔"("案場ID") ON DELETE CASCADE,
+  "日期"       TEXT,
+  "工程款金額" NUMERIC DEFAULT 0,
+  "發票ID"     TEXT,
+  "備註"       TEXT,
+  "更新時間"   TIMESTAMPTZ DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS idx_work_project ON "工程請款"("案場ID");
+ALTER TABLE "預收扣回明細" ADD COLUMN IF NOT EXISTS "工程請款ID" TEXT;
