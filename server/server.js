@@ -28,7 +28,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // 明碼存在 Render 環境
 const TABLES = {
   '案場主檔': {
     idCol: '案場ID', prefix: 'P', pad: 4,
-    cols: ['案場名稱','業主','所屬公司','主約未稅金額','主約稅額','主約含稅金額','預設付款條件','預設付款方式','狀態','開案日期','備註']
+    cols: ['案場名稱','業主','所屬公司','主約未稅金額','主約稅額','主約含稅金額','預設付款條件','預設付款方式','狀態','開案日期','備註','預收訂金']
   },
   '合約明細': {
     idCol: '明細ID', prefix: 'C', pad: 4,
@@ -49,11 +49,19 @@ const TABLES = {
   },
   '發票登記': {
     idCol: '發票ID', prefix: 'I', pad: 4,
-    cols: ['案場ID','類型','統一編號','發票日期','發票號碼','項目','金額(含稅)','備註']
+    cols: ['案場ID','類型','發票形式','統一編號','發票日期','發票號碼','項目','金額(含稅)','備註']  // 類型：請款／預收／折讓／扣抵；發票形式：三聯式發票／電子發票
   },
   '收款登記': {
     idCol: '收款ID', prefix: 'R', pad: 4,
-    cols: ['案場ID','方式','日期','金額','銀行','支票號碼','手續費','狀態','對應發票ID','對應預估收入ID','備註']
+    cols: ['案場ID','方式','日期','金額','銀行','支票號碼','手續費','狀態','對應發票ID','對應預估收入ID','備註','收款類型']
+  },
+  '工程請款': {
+    idCol: '工程請款ID', prefix: 'G', pad: 4,
+    cols: ['案場ID','日期','工程款金額','發票ID','備註']
+  },
+  '預收扣回明細': {
+    idCol: '扣回ID', prefix: 'K', pad: 4,
+    cols: ['案場ID','年月','工程請款ID','扣回金額','備註']
   },
   '支出登記': {
     idCol: '支出ID', prefix: 'E', pad: 4,
@@ -141,6 +149,61 @@ async function nextId(client, sheetName) {
   return prefix + String(max + 1).padStart(pad, '0');
 }
 
+// ---------------------------------------------------------------------
+// 預收訂金：扣回金額不可超過剩餘額；調降預收總額不可低於已扣回金額
+// ---------------------------------------------------------------------
+async function checkPrepay(client, sheetName, action, rowId, data) {
+  if (sheetName === '工程請款' && action === 'deleteRow') {
+    const { rows } = await client.query('SELECT count(*)::int AS n FROM "預收扣回明細" WHERE "工程請款ID" = $1', [rowId]);
+    if (rows[0].n > 0) throw new Error('此工程請款已有預收扣回紀錄，請先刪除扣回再刪除請款');
+  }
+  if (sheetName === '預收扣回明細' && (action === 'createRow' || action === 'updateRow')) {
+    let pid = data['案場ID'];
+    let excludeId = null;
+    if (action === 'updateRow') {
+      if (!rowId) throw new Error('缺少 rowId');
+      excludeId = rowId;
+      const { rows } = await client.query('SELECT "案場ID" AS id FROM "預收扣回明細" WHERE "扣回ID" = $1', [rowId]);
+      if (!rows.length) throw new Error('找不到扣回紀錄：' + rowId);
+      pid = data['案場ID'] !== undefined ? data['案場ID'] : rows[0].id;
+    }
+    if (!pid) throw new Error('缺少案場ID');
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['prepay:' + pid]);
+    const amt = Number(data['扣回金額'] !== undefined ? data['扣回金額'] : (await currentDeduct(client, excludeId)));
+    if (!(amt > 0)) throw new Error('扣回金額必須大於 0');
+    if (data['工程請款ID']) {
+      const { rows } = await client.query('SELECT "工程款金額" AS v FROM "工程請款" WHERE "工程請款ID" = $1', [data['工程請款ID']]);
+      if (!rows.length) throw new Error('找不到工程請款：' + data['工程請款ID']);
+      if (amt > Number(rows[0].v)) throw new Error('扣回金額超過該筆工程請款金額（' + rows[0].v + ' 元）');
+    }
+    const total = await prepayTotal(client, pid);
+    if (!(total > 0)) throw new Error('此案場尚未設定預收訂金，無法扣回');
+    const used = await prepayUsed(client, pid, excludeId);
+    const remaining = total - used;
+    if (amt > remaining) throw new Error('扣回金額超過剩餘預收（剩餘 ' + remaining + ' 元）');
+  }
+  if (sheetName === '案場主檔' && action === 'updateRow' && data['預收訂金'] !== undefined) {
+    const newTotal = Number(data['預收訂金']) || 0;
+    const used = await prepayUsed(client, rowId, null);
+    if (newTotal < used) throw new Error('預收訂金不可低於已扣回金額（已扣回 ' + used + ' 元）');
+  }
+}
+async function currentDeduct(client, rowId) {
+  const { rows } = await client.query('SELECT "扣回金額" AS v FROM "預收扣回明細" WHERE "扣回ID" = $1', [rowId]);
+  return rows[0] ? rows[0].v : 0;
+}
+async function prepayTotal(client, pid) {
+  const { rows } = await client.query('SELECT "預收訂金" AS v FROM "案場主檔" WHERE "案場ID" = $1', [pid]);
+  return rows[0] ? Number(rows[0].v) || 0 : 0;
+}
+async function prepayUsed(client, pid, excludeId) {
+  const { rows } = await client.query(
+    'SELECT COALESCE(SUM("扣回金額"),0) AS v FROM "預收扣回明細" WHERE "案場ID" = $1 AND ($2::text IS NULL OR "扣回ID" <> $2)',
+    [pid, excludeId]
+  );
+  return Number(rows[0].v) || 0;
+}
+
 async function bumpVersion(client) {
   const { rows } = await client.query(`UPDATE "_meta" SET value = (value::int + 1)::text WHERE key='data_version' RETURNING value`);
   return rows[0] ? rows[0].value : '1';
@@ -224,6 +287,9 @@ app.post('/api/action', async (req, res) => {
         return res.status(409).json({ status: 'conflict', message: '資料已被更新過（目前版本 ' + serverVer + '），請重新讀取後再編輯' });
       }
     }
+
+    // 預收訂金檢查：扣回不可超過剩餘預收；預收總額不可小於已扣回金額
+    await checkPrepay(client, sheetName, action, rowId, data || {});
 
     // 新增案場：由後端依「所屬公司＋年份」產生案場ID
     if (sheetName === '案場主檔' && action === 'createRow') {
