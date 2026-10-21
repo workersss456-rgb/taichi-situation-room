@@ -201,6 +201,7 @@
     </div>
 
     <div class="kpi-grid boss-kpi" id="dashboard-kpi"></div>
+    <div id="dashboard-prepay" style="margin-bottom:12px"></div>
 
     <div class="card" style="margin-bottom:12px"><div class="card-head">🔎 各案場收支概覽</div>
       <div class="card-body">
@@ -228,7 +229,7 @@
       </div>
     </div>
 
-    <div class="sub" style="margin:4px 0 12px">指標定義：達成率＝實際收入÷預估收入淨額；毛利率＝(實際收入−實際支出)÷實際收入；完工比例＝累計已請款÷合約總額。實際收入＝收款登記（匯款計現金）−期間內折讓／扣抵；預估收入淨額＝預估收入−預估折讓。</div>
+    <div class="sub" style="margin:4px 0 12px">指標定義：達成率＝實際收入÷預估收入淨額；毛利率＝(實際收入−實際支出)÷實際收入；完工比例＝累計已請款÷合約總額。實際收入＝請款發票（依發票日，權責）－期間內折讓／扣抵，預收不計收入；預估收入淨額＝預估收入－預估折讓。</div>
     <div class="card">
       <div class="card-head">🧮 各案場成本執行率（預算 vs 實際，全案場累計）</div>
       <div class="card-body">
@@ -329,7 +330,7 @@ let serverDataVersion = '0';
 // 資料快取（從後端 GET 拉來的）
 let DATA = {
   '案場主檔': [], '合約明細': [], '廠商主檔': [], '點工人員主檔': [],
-  '月度請款': [], '發票登記': [], '收款登記': [], '支出登記': [], '案場預算': [], '預估收入': [], '預估支出': []
+  '月度請款': [], '發票登記': [], '收款登記': [], '支出登記': [], '案場預算': [], '預估收入': [], '預估支出': [], '預收扣回明細': [], '工程請款': []
 };
 
 // 當前開啟的案場詳情
@@ -497,11 +498,13 @@ function renderDashboard() {
 // 本月戰情（老闆看板）：依篩選期間與案場計算
 // 口徑：收入＝收款登記（匯款計現金）－期間內折讓／扣抵；支出＝支出登記（依類型歸類，點工用實際口徑）
 //       預估＝預估收入／預估支出（依年月）；預估折讓自預估收入扣除
+// 2026 調整：實際收入改依「發票日期」的權責口徑＝請款發票－折讓－扣抵；預收（收款類型＝預收訂金／發票類型＝預收）不計收入
 // =====================================================================
 let BOSS_TAB = 0;
 const BOSS_TABS = ['收入','材料','工數','發包','其他'];
 const CAT4 = ['材料','工數','發包','其他'];
-const BOSS_EXP_CAT = {'材料設備':'材料','發票-發包':'發包','發票-點工':'工數','報酬單-點工':'工數','現金-點工':'工數'};
+const BOSS_EXP_CAT = {'材料設備':'材料','發票-發包':'發包','發票-點工':'工數','報酬單-點工':'工數','現金-點工':'工數','收據':'其他'};
+const APTYPE_LABEL = {'材料設備':'發票・材料','發票-發包':'發票・發包','發票-點工':'發票・點工','收據':'收據','報酬單-點工':'勞務報酬','現金-點工':'無憑證'};
 const PIE_COLORS = ['#2563eb','#0f9d68','#d98a00','#8b3ee0','#d92d3f','#0891b2','#6b7280','#db2777'];
 
 function bossYM(d){ return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'); }
@@ -535,29 +538,31 @@ function bossCompute(fromDate, toDate){
   dashProjects().forEach(p => byP[p['案場ID']] = {
     name: p['案場名稱'], owner: p['業主'] || p['案場名稱'],
     estCash:0, estCheck:0, estDisc:0, actCash:0, actCheck:0, actDisc:0,
-    estCat:{'材料':0,'工數':0,'發包':0,'其他':0}, actCat:{'材料':0,'工數':0,'發包':0,'其他':0}
+    estCat:{'材料':0,'工數':0,'發包':0,'其他':0}, actCat:{'材料':0,'工數':0,'發包':0,'其他':0}, actInv:0
   });
   const has = pid => !!byP[pid];
   const num = v => Number(v) || 0;
   const EI = DATA['預估收入'].filter(r => has(r['案場ID']) && bossYMIn(r['年月'], fromDate, toDate));
   const EX = DATA['預估支出'].filter(r => has(r['案場ID']) && bossYMIn(r['年月'], fromDate, toDate));
-  const RC = DATA['收款登記'].filter(r => has(r['案場ID']) && bossDayIn(r['日期'], fromDate, toDate));
+  const RC = DATA['收款登記'].filter(r => has(r['案場ID']) && r['收款類型'] !== '預收訂金' && bossDayIn(r['日期'], fromDate, toDate));
+  const INV = DATA['工程請款'].filter(r => has(r['案場ID']) && bossDayIn(r['日期'], fromDate, toDate));
   const DS = DATA['發票登記'].filter(r => has(r['案場ID']) && (r['類型']==='折讓' || r['類型']==='扣抵') && bossDayIn(r['發票日期'], fromDate, toDate));
   const EP = DATA['支出登記'].filter(r => has(r['案場ID']) && bossDayIn(r['日期'], fromDate, toDate));
   EI.forEach(r => { const o = byP[r['案場ID']]; if (r['方式']==='支票') o.estCheck += num(r['預估金額']); else o.estCash += num(r['預估金額']); });
   EX.forEach(r => { const o = byP[r['案場ID']]; if (r['類別']==='折讓') o.estDisc += num(r['預估金額']); else o.estCat[CAT4.includes(r['類別']) ? r['類別'] : '其他'] += num(r['預估金額']); });
   RC.forEach(r => { const o = byP[r['案場ID']]; if (r['方式']==='支票') o.actCheck += num(r['金額']); else o.actCash += num(r['金額']); });
+  INV.forEach(r => { byP[r['案場ID']].actInv += num(r['工程款金額']); });
   DS.forEach(r => { byP[r['案場ID']].actDisc += num(r['金額(含稅)']); });
   EP.forEach(e => { const o = byP[e['案場ID']]; o.actCat[BOSS_EXP_CAT[e['類型']] || '其他'] += getActualExpenseAmt(e); });
-  const S = { estCash:0, estCheck:0, estDisc:0, actCash:0, actCheck:0, actDisc:0,
+  const S = { estCash:0, estCheck:0, estDisc:0, actCash:0, actCheck:0, actDisc:0, actInv:0,
     estCat:{'材料':0,'工數':0,'發包':0,'其他':0}, actCat:{'材料':0,'工數':0,'發包':0,'其他':0} };
   Object.values(byP).forEach(o => {
-    ['estCash','estCheck','estDisc','actCash','actCheck','actDisc'].forEach(k => S[k] += o[k]);
+    ['estCash','estCheck','estDisc','actCash','actCheck','actDisc','actInv'].forEach(k => S[k] += o[k]);
     CAT4.forEach(c => { S.estCat[c] += o.estCat[c]; S.actCat[c] += o.actCat[c]; });
   });
   return { byP, S, EI, EX, RC, DS, EP };
 }
-function bossIncome(o, est){ return est ? (o.estCash + o.estCheck - o.estDisc) : (o.actCash + o.actCheck - o.actDisc); }
+function bossIncome(o, est){ return est ? (o.estCash + o.estCheck - o.estDisc) : (o.actInv - o.actDisc); }
 function bossSum(obj){ return Object.values(obj).reduce((a,b) => a+b, 0); }
 
 function renderBossKpi(c, mode){
@@ -574,6 +579,7 @@ function renderBossKpi(c, mode){
   const cashLabel = mode === 'month' ? '本月淨現金' : '期間淨現金';
   const bar = v => v === null ? '' : `<div class="kpi-bar"><i style="width:${Math.max(0, Math.min(100, v))}%"></i></div>`;
   const sub = t => `<div style="font-size:12.5px;color:var(--dim);margin-top:6px">${t}</div>`;
+  const dpEl = document.getElementById('dashboard-prepay'); if (dpEl) dpEl.innerHTML = renderDashPrepay();
   document.getElementById('dashboard-kpi').innerHTML = `
     <div class="kpi-card teal"><div class="kpi-label">達成率</div><div class="kpi-value">${ach!==null ? ach.toFixed(1)+'%' : '—'}</div>${sub(`實際收入 ${fmt(actInc)} ／ 預估 ${fmt(estInc)}`)}${bar(ach)}</div>
     <div class="kpi-card ${profit>=0?'green':'red'}"><div class="kpi-label">毛利率</div><div class="kpi-value">${margin!==null ? margin.toFixed(1)+'%' : '—'}</div>${sub(`毛利 ${fmt(profit)}`)}${bar(margin)}</div>
@@ -781,18 +787,19 @@ function getPeriodRange() {
   return { fromDate: from ? new Date(from) : new Date(2000,0,1), toDate: to ? new Date(to + 'T23:59:59') : new Date(2099,11,31), label: (from||'不限') + '~' + (to||'不限') };
 }
 
-// 依日期範圍計算某案場的實際請款總額（從發票登記，只算「三聯發票」，扣掉「折讓」「扣抵」）
+// 依日期範圍計算某案場的累計請款（權責）：工程請款合計－期間內折讓／扣抵；預收不計
 function calcTotalInvoiceForProject(projectId, fromDate, toDate) {
-  const invoices = DATA['發票登記'].filter(inv => inv['案場ID'] === projectId);
-  return invoices.reduce((sum, inv) => {
-    const invDate = inv['發票日期'] ? new Date(inv['發票日期']) : null;
-    if (fromDate && invDate && invDate < fromDate) return sum;
-    if (toDate && invDate && invDate > toDate) return sum;
-    const amt = Number(inv['金額(含稅)']) || 0;
-    if (inv['類型'] === '三聯發票') return sum + amt;
-    if (inv['類型'] === '折讓' || inv['類型'] === '扣抵') return sum - amt;
-    return sum;
-  }, 0);
+  const inRange = ds => {
+    const d = ds ? new Date(ds) : null;
+    if (fromDate && d && d < fromDate) return false;
+    if (toDate && d && d > toDate) return false;
+    return true;
+  };
+  const work = DATA['工程請款'].filter(w => w['案場ID'] === projectId && inRange(w['日期']))
+    .reduce((s, w) => s + (Number(w['工程款金額']) || 0), 0);
+  const adj = DATA['發票登記'].filter(i => i['案場ID'] === projectId && (i['類型'] === '折讓' || i['類型'] === '扣抵') && inRange(i['發票日期']))
+    .reduce((s, i) => s + (Number(i['金額(含稅)']) || 0), 0);
+  return work - adj;
 }
 function calcTotalExpenseForProject(projectId, fromDate, toDate) {
   const exps = DATA['支出登記'].filter(e => e['案場ID'] === projectId);
@@ -936,7 +943,7 @@ function renderProjects() {
     const total = calcContractTotalIncl(p['案場ID']);
     return `<tr>
       <td>${escapeHtml(p['案場ID'])}</td>
-      <td><button class="link-btn" onclick="openDetailModal('${escapeHtml(p['案場ID'])}')">${escapeHtml(p['案場名稱'])}</button></td>
+      <td><button class="link-btn" onclick="openDetailModal('${escapeHtml(p['案場ID'])}')">${escapeHtml(p['案場名稱'])}</button> ${ppBadge(p['案場ID'])}</td>
       <td>${escapeHtml(p['業主']||'')}</td>
       <td>${fmt(total)}</td>
       <td>${escapeHtml(p['預設付款條件']||'')} / ${escapeHtml(p['預設付款方式']||'')}</td>
@@ -960,6 +967,7 @@ function openProjectEdit(id) {
       <div><label>主約含稅金額（自動算）</label><input type="number" id="pf-incl" value="${mainInclOf(p)}" readonly></div>
       <div><label>預設付款條件</label><input type="text" id="pf-terms" value="${escapeHtml(p['預設付款條件']||'')}" placeholder="例：月結60天"></div>
       <div><label>預設付款方式</label><select id="pf-method"><option value="匯款" ${p['預設付款方式']==='匯款'?'selected':''}>匯款</option><option value="支票" ${p['預設付款方式']==='支票'?'selected':''}>支票</option><option value="混合" ${p['預設付款方式']==='混合'?'selected':''}>混合</option></select></div>
+      <div><label>預收訂金總額（無則填 0）</label><input type="number" id="pf-prepay" value="${p['預收訂金']||0}"></div>
       <div><label>狀態</label><select id="pf-status"><option value="進行中" ${p['狀態']==='進行中'?'selected':''}>進行中</option><option value="停工" ${p['狀態']==='停工'?'selected':''}>停工</option><option value="結案" ${p['狀態']==='結案'?'selected':''}>結案</option></select></div>
       <div><label>開案日期</label><input type="date" id="pf-open-date" value="${toDateStr(p['開案日期'])}"></div>
       <div class="full"><label>備註</label><textarea id="pf-note">${escapeHtml(p['備註']||'')}</textarea></div>
@@ -988,6 +996,7 @@ async function saveProject() {
     '預設付款條件': document.getElementById('pf-terms').value.trim(),
     '預設付款方式': document.getElementById('pf-method').value,
     '狀態': document.getElementById('pf-status').value,
+    '預收訂金': Number(document.getElementById('pf-prepay').value) || 0,
     '開案日期': document.getElementById('pf-open-date').value,
     '備註': document.getElementById('pf-note').value.trim()
   };
@@ -1048,9 +1057,9 @@ function renderDetailBody() {
     { key: 'contract', label: '📋 合約明細+追加' },
     { key: 'budget', label: '🧮 預算控制' },
     { key: 'estimate', label: '🎯 每月預估收支' },
-    { key: 'invoice', label: '🧾 發票登記' },
-    { key: 'payment', label: '💰 收款登記' },
-    { key: 'expense', label: '💸 支出登記' }
+    { key: 'ar', label: '💵 應收登記' },
+    { key: 'ap', label: '💸 應付登記' },
+    { key: 'prepay', label: '💠 預收扣回' }
   ];
   if (!subtabs.some(t => t.key === currentDetailSubtab)) currentDetailSubtab = 'contract';
 
@@ -1065,6 +1074,7 @@ function renderDetailBody() {
       <div class="kpi-card ${profit >= 0 ? 'green' : 'red'}"><div class="kpi-label">案場毛利</div><div class="kpi-value">${fmt(profit)}</div></div>
       <div class="kpi-card teal"><div class="kpi-label">合約達成率</div><div class="kpi-value">${contractRate}%</div></div>
     </div>
+    ${renderPrepayCard()}
     <div class="filter-row" style="justify-content:flex-end">
       <label>月報期間：</label>
       <input type="month" id="report-month" value="${defaultYm}">
@@ -1077,15 +1087,224 @@ function renderDetailBody() {
   document.getElementById('detail-body').innerHTML = html;
 }
 
+// =====================================================================
+// 預收訂金（預收扣回）：預收總額 − 已扣回 ＝ 剩餘；每期以「工程請款」扣回，扣到用完為止，扣完前該期不收現金
+// 資料：案場主檔.預收訂金、工程請款（每期完成的工程款）、預收扣回明細（每期扣回，對應一筆工程請款）
+// =====================================================================
+function ppTotal(pid) { const p = DATA['案場主檔'].find(x => x['案場ID'] === pid); return Number(p && p['預收訂金']) || 0; }
+function ppUsed(pid, excludeId) {
+  return DATA['預收扣回明細'].filter(r => r['案場ID'] === pid && r['扣回ID'] !== excludeId)
+    .reduce((s, r) => s + (Number(r['扣回金額']) || 0), 0);
+}
+function ppRemaining(pid, excludeId) { return ppTotal(pid) - ppUsed(pid, excludeId || null); }
+function ppStatus(pid) {
+  const total = ppTotal(pid); if (!total) return null;
+  const used = ppUsed(pid, null), rem = total - used;
+  return { total, used, rem, done: rem <= 0, pct: Math.max(0, Math.min(100, used / total * 100)) };
+}
+function ppBadge(pid) {
+  const st = ppStatus(pid); if (!st) return '';
+  return st.done
+    ? ' <span class="badge badge-ok">預收已扣完，可全額請款</span>'
+    : ` <span class="badge badge-warn">預收扣回中 剩 ${fmt(st.rem)}</span>`;
+}
+// 紅字警示：1) 有工程請款尚未扣回、且預收尚有剩餘 2) 扣回金額大於對應工程請款
+function ppWarnings(pid) {
+  const st = ppStatus(pid); if (!st) return [];
+  const used = DATA['預收扣回明細'].filter(r => r['案場ID'] === pid);
+  const out = [];
+  if (!st.done) {
+    DATA['工程請款'].filter(w => w['案場ID'] === pid).forEach(w => {
+      if (!used.some(r => r['工程請款ID'] === w['工程請款ID'])) {
+        out.push(`工程請款 ${toDateStr(w['日期']) || '日期未填'}（${fmt(w['工程款金額'])}）尚未扣回預收，目前剩餘 ${fmt(st.rem)}`);
+      }
+    });
+  }
+  used.forEach(r => {
+    const w = DATA['工程請款'].find(x => x['工程請款ID'] === r['工程請款ID']);
+    if (w && Number(r['扣回金額']) > Number(w['工程款金額'])) {
+      out.push(`${r['年月'] || '—'} 扣回 ${fmt(r['扣回金額'])} 大於該筆工程請款 ${fmt(w['工程款金額'])}，請確認`);
+    }
+  });
+  return out;
+}
+function renderPrepayCard() {
+  const st = ppStatus(currentProjectId);
+  if (!st) return `<div style="font-size:12.5px;color:var(--dim);margin:10px 0">未設定預收訂金（需要時請到「編輯案場」填入預收訂金總額）</div>`;
+  const warns = ppWarnings(currentProjectId);
+  return `
+    <div class="card" style="padding:14px 16px;margin:12px 0">
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px">
+        <b>💠 預收訂金追蹤</b>
+        ${st.done ? '<span class="badge badge-ok">已扣完，可全額請款</span>' : '<span class="badge badge-warn">扣回中（未扣完前不收現金）</span>'}
+      </div>
+      <div style="display:flex;gap:22px;flex-wrap:wrap;margin:10px 0;font-size:13.5px">
+        <span>預收總額 <b>${fmt(st.total)}</b></span>
+        <span>已扣回 <b>${fmt(st.used)}</b></span>
+        <span>剩餘 <b style="color:${st.done ? 'var(--green)' : 'var(--amber)'}">${fmt(Math.max(0, st.rem))}</b></span>
+      </div>
+      <div class="kpi-bar"><i style="width:${st.pct}%"></i></div>
+      ${warns.map(w => `<div class="banner banner-error" style="margin:10px 0 0">⚠️ ${escapeHtml(w)}</div>`).join('')}
+    </div>`;
+}
+function renderPrepayPanel() {
+  const pid = currentProjectId;
+  const st = ppStatus(pid);
+  if (!st) return '<div class="empty">此案場尚未設定預收訂金。請到「編輯案場」填入預收訂金總額後，即可開始記錄每期扣回。</div>';
+  const list = DATA['預收扣回明細'].filter(r => r['案場ID'] === pid)
+    .sort((a, b) => String(a['年月']).localeCompare(String(b['年月'])) || String(a['扣回ID']).localeCompare(String(b['扣回ID'])));
+  let cum = 0;
+  const rows = list.map(r => {
+    const w = DATA['工程請款'].find(x => x['工程請款ID'] === r['工程請款ID']);
+    const ded = Number(r['扣回金額']) || 0;
+    cum += ded;
+    const gross = w ? Number(w['工程款金額']) || 0 : null;
+    const warn = gross !== null && ded > gross ? ' <span class="badge badge-danger">扣回＞請款</span>' : '';
+    return `<tr>
+      <td>${escapeHtml(r['年月'] || '')}</td>
+      <td>${w ? escapeHtml(toDateStr(w['日期']) || '—') : '<span style="color:var(--dim)">未對應</span>'}</td>
+      <td>${gross === null ? '—' : fmt(gross)}</td>
+      <td>${fmt(ded)}${warn}</td>
+      <td>${gross === null ? '—' : fmt(gross - ded)}</td>
+      <td>${fmt(Math.max(0, st.total - cum))}</td>
+      <td>${escapeHtml(r['備註'] || '')}</td>
+      <td><button class="btn btn-dark btn-sm" onclick="openSubEdit('預收扣回明細','${r['扣回ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('預收扣回明細','${r['扣回ID']}')">✕</button></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div class="stat-chip">預收 ${fmt(st.total)} ｜ 已扣回 ${fmt(st.used)} ｜ 剩餘 <b>${fmt(Math.max(0, st.rem))}</b></div>
+      <button class="btn btn-primary btn-sm" onclick="openSubEdit('預收扣回明細',null)">+ 新增扣回</button>
+    </div>
+    <table>
+      <thead><tr><th>年月</th><th>對應工程請款</th><th>工程款金額</th><th>扣回預收</th><th>本期應收現金</th><th>扣回後剩餘</th><th>備註</th><th>操作</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="8" class="empty">尚無扣回紀錄</td></tr>'}</tbody>
+    </table>`;
+}
+function renderPrepayForm(r) {
+  const pid = currentProjectId;
+  const isNew = !r['扣回ID'];
+  const rem = ppRemaining(pid, r['扣回ID'] || null);
+  const works = DATA['工程請款'].filter(w => w['案場ID'] === pid)
+    .sort((a, b) => String(a['日期']).localeCompare(String(b['日期'])));
+  const cur = r['工程請款ID'] || '';
+  const now = new Date();
+  const curYm = now.getFullYear() + '-' + String(now.getMonth() + 1).padStart(2, '0');
+  const defYm = r['年月'] || curYm;
+  return `<div class="form-grid">
+    <div><label>年月 *</label><input type="month" id="sf-ym" value="${defYm}"></div>
+    <div><label>對應工程請款 *</label><select id="sf-work" onchange="prepaySuggest(false)"><option value="">請選擇</option>${works.map(w => `<option value="${w['工程請款ID']}" data-amt="${Number(w['工程款金額']) || 0}" ${cur === w['工程請款ID'] ? 'selected' : ''}>${escapeHtml(toDateStr(w['日期']) || '日期未填')} ${fmt(w['工程款金額'])}</option>`).join('')}</select></div>
+    <div><label>扣回金額 *</label><input type="number" id="sf-deduct" value="${isNew ? '' : (r['扣回金額'] || 0)}" oninput="prepayCashPreview()"></div>
+    <div class="full" id="sf-prepay-hint" data-rem="${rem}" style="font-size:12.5px;color:var(--dim)"></div>
+    <div class="full"><label>備註</label><textarea id="sf-note">${escapeHtml(r['備註'] || '')}</textarea></div>
+  </div>`;
+}
+function prepaySuggest(init) {
+  const sel = document.getElementById('sf-work'), dd = document.getElementById('sf-deduct');
+  if (!sel || !dd) return;
+  const rem = Number(document.getElementById('sf-prepay-hint').dataset.rem) || 0;
+  const amt = sel.selectedOptions[0] ? Number(sel.selectedOptions[0].dataset.amt) || 0 : 0;
+  if (amt && (!init || dd.value === '')) dd.value = Math.min(rem, amt);
+  prepayCashPreview();
+}
+function prepayCashPreview() {
+  const hint = document.getElementById('sf-prepay-hint'); if (!hint) return;
+  const rem = Number(hint.dataset.rem) || 0;
+  const sel = document.getElementById('sf-work');
+  const amt = sel && sel.selectedOptions[0] ? Number(sel.selectedOptions[0].dataset.amt) || 0 : 0;
+  const ded = Number(document.getElementById('sf-deduct').value) || 0;
+  let html = `剩餘可扣 <b>${fmt(rem)}</b>`;
+  if (amt) html += ` ｜ 本期工程請款 ${fmt(amt)} ｜ 本期應收現金 <b>${fmt(amt - ded)}</b>`;
+  if (ded > rem) html += ` <span style="color:var(--red)">⚠️ 超過剩餘預收</span>`;
+  if (amt && ded > amt) html += ` <span style="color:var(--red)">⚠️ 扣回大於本期請款</span>`;
+  hint.innerHTML = html;
+}
+function renderDashPrepay() {
+  const rows = dashProjects().map(p => ({ p, st: ppStatus(p['案場ID']) })).filter(x => x.st);
+  if (!rows.length) return '';
+  const pending = rows.filter(x => !x.st.done);
+  const pendingRem = pending.reduce((s, x) => s + x.st.rem, 0);
+  const warnCount = rows.reduce((s, x) => s + ppWarnings(x.p['案場ID']).length, 0);
+  return `
+    <div class="card" style="padding:14px 16px">
+      <div style="display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;align-items:center">
+        <b>💠 預收訂金總覽</b>
+        <span style="font-size:13px">預收餘額（未扣回）<b>${fmt(pendingRem)}</b>（${pending.length} 案扣回中，${rows.length - pending.length} 案已扣完）${warnCount ? ` ｜ <span style="color:var(--red)">⚠️ ${warnCount} 筆待確認</span>` : ''}</span>
+      </div>
+      <table style="margin-top:10px">
+        <thead><tr><th>案場</th><th>預收總額</th><th>已扣回</th><th>剩餘</th><th>狀態</th></tr></thead>
+        <tbody>${rows.map(x => `<tr>
+          <td>${escapeHtml(x.p['案場名稱'])}</td><td>${fmt(x.st.total)}</td><td>${fmt(x.st.used)}</td><td>${fmt(Math.max(0, x.st.rem))}</td>
+          <td>${x.st.done ? '<span class="badge badge-ok">已扣完，可全額請款</span>' : '<span class="badge badge-warn">扣回中</span>'}</td>
+        </tr>`).join('')}</tbody>
+      </table>
+    </div>`;
+}
+
+// =====================================================================
+// 應收登記：工程請款（權責收入）／請款發票（稅務紀錄）／收款（現金）
+// =====================================================================
+let arSub = 'work';
+function renderArPanel() {
+  const tabs = [
+    { key: 'work', label: '🏗 工程請款' },
+    { key: 'invoice', label: '🧾 發票' },
+    { key: 'payment', label: '💰 收款' }
+  ];
+  const body = arSub === 'invoice' ? renderInvoicePanel() : arSub === 'payment' ? renderPaymentPanel() : renderWorkPanel();
+  return `<div class="subtabs" style="margin-bottom:12px">${tabs.map(t => `<button class="subtab-btn ${arSub === t.key ? 'active' : ''}" onclick="setArSub('${t.key}')">${t.label}</button>`).join('')}</div>${body}`;
+}
+function setArSub(key) { arSub = key; renderDetailBody(); }
+function renderWorkPanel() {
+  const pid = currentProjectId;
+  const list = DATA['工程請款'].filter(w => w['案場ID'] === pid).sort((a, b) => String(b['日期']).localeCompare(String(a['日期'])));
+  const total = list.reduce((s, w) => s + (Number(w['工程款金額']) || 0), 0);
+  const rows = list.map(w => {
+    const inv = DATA['發票登記'].find(i => i['發票ID'] === w['發票ID']);
+    const amt = Number(w['工程款金額']) || 0;
+    const ded = DATA['預收扣回明細'].filter(r => r['工程請款ID'] === w['工程請款ID']).reduce((s, r) => s + (Number(r['扣回金額']) || 0), 0);
+    return `<tr>
+      <td>${toDateStr(w['日期'])}</td><td>${fmt(amt)}</td>
+      <td>${inv ? escapeHtml(inv['發票號碼'] || inv['發票ID']) : '<span style="color:var(--dim)">未開發票</span>'}</td>
+      <td>${fmt(ded)}</td><td>${fmt(amt - ded)}</td>
+      <td>${escapeHtml(w['備註'] || '')}</td>
+      <td><button class="btn btn-dark btn-sm" onclick="openSubEdit('工程請款','${w['工程請款ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('工程請款','${w['工程請款ID']}')">✕</button></td>
+    </tr>`;
+  }).join('');
+  return `
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div class="stat-chip">累計工程請款（權責收入）: <b>${fmt(total)}</b></div>
+      <button class="btn btn-primary btn-sm" onclick="openSubEdit('工程請款',null)">+ 新增工程請款</button>
+    </div>
+    <table>
+      <thead><tr><th>日期</th><th>工程款金額（含稅）</th><th>對應發票</th><th>預收扣回</th><th>本期應收現金</th><th>備註</th><th>操作</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" class="empty">尚無工程請款，完成一期工程後新增，權責收入即會計入</td></tr>'}</tbody>
+    </table>`;
+}
+function renderWorkForm(r) {
+  const pid = currentProjectId;
+  const invs = DATA['發票登記'].filter(i => i['案場ID'] === pid && i['類型'] === '請款')
+    .sort((a, b) => String(a['發票日期']).localeCompare(String(b['發票日期'])));
+  const today = new Date().toISOString().slice(0, 10);
+  return `<div class="form-grid">
+    <div><label>日期 *</label><input type="date" id="sf-date" value="${toDateStr(r['日期']) || today}"></div>
+    <div><label>工程款金額（含稅）*</label><input type="number" id="sf-amt" value="${r['工程款金額'] || 0}"></div>
+    <div class="full"><label>對應發票（未開發票就留空）</label><select id="sf-inv"><option value="">未開發票</option>${invs.map(i => `<option value="${i['發票ID']}" ${r['發票ID'] === i['發票ID'] ? 'selected' : ''}>${escapeHtml(i['發票號碼'] || '無號')} ${escapeHtml(toDateStr(i['發票日期']) || '')} ${fmt(i['金額(含稅)'])}</option>`).join('')}</select></div>
+    <div class="full"><label>備註</label><textarea id="sf-note">${escapeHtml(r['備註'] || '')}</textarea></div>
+  </div>`;
+}
+
 function renderSubpanelContent(name) {
   if (name === 'contract') return renderContractPanel();
   if (name === 'budget') return renderBudgetPanel();
   if (name === 'estimate') return renderEstimatePanel();
-  if (name === 'invoice') return renderInvoicePanel();
-  if (name === 'payment') return renderPaymentPanel();
-  if (name === 'expense') return renderExpensePanel();
+  if (name === 'ar') return renderArPanel();
+  if (name === 'ap') return renderExpensePanel();
+  if (name === 'prepay') return renderPrepayPanel();
   return '';
 }
+
+
 
 // -- 合約明細+追加 ---
 function renderContractPanel() {
@@ -1179,7 +1398,7 @@ function openBudgetEdit() {
 // =====================================================================
 const IMPORT_SPEC = [
   { sheet:'案場主檔', id:'案場ID', req:['案場名稱'], fk:false,
-    cols:['案場ID','案場名稱','業主','所屬公司','主約未稅金額','主約稅額','主約含稅金額','預設付款條件','預設付款方式','狀態','開案日期','備註'],
+    cols:['案場ID','案場名稱','業主','所屬公司','主約未稅金額','主約稅額','主約含稅金額','預設付款條件','預設付款方式','狀態','開案日期','備註','預收訂金'],
     hint:{'狀態':'進行中／停工／結案','預設付款方式':'匯款／支票／混合','開案日期':'YYYY-MM-DD'} },
   { sheet:'合約明細', id:'明細ID', req:['案場ID','項目名稱'], fk:true,
     cols:['明細ID','案場ID','類型','序號','項目名稱','未稅金額','稅額','含稅金額','日期','備註'],
@@ -1193,11 +1412,14 @@ const IMPORT_SPEC = [
     cols:['請款ID','案場ID','年月','預估請款金額','收入方式','現金比例','支票比例','備註'],
     hint:{'年月':'YYYY-MM','收入方式':'現金／支票／混合','現金比例':'百分比數字，例如 60'} },
   { sheet:'發票登記', id:'發票ID', req:['案場ID','金額(含稅)'], fk:true,
-    cols:['發票ID','案場ID','類型','統一編號','發票日期','發票號碼','項目','金額(含稅)','備註'],
-    hint:{'類型':'三聯發票／折讓／扣抵'} },
+    cols:['發票ID','案場ID','類型','發票形式','統一編號','發票日期','發票號碼','項目','金額(含稅)','備註'],
+    hint:{'類型':'請款／預收／折讓／扣抵','發票形式':'三聯式發票／電子發票'} },
   { sheet:'收款登記', id:'收款ID', req:['案場ID','金額'], fk:true,
-    cols:['收款ID','案場ID','方式','日期','金額','銀行','支票號碼','手續費','狀態','對應發票ID','對應預估收入ID','備註'],
-    hint:{'方式':'匯款／支票','狀態':'已入帳／到期／兌現／退票'} },
+    cols:['收款ID','案場ID','方式','日期','金額','銀行','支票號碼','手續費','狀態','對應發票ID','對應預估收入ID','備註','收款類型'],
+    hint:{'方式':'匯款／支票','狀態':'已入帳／到期／兌現／退票','收款類型':'工程款／預收訂金'} },
+  { sheet:'預收扣回明細', id:'扣回ID', req:['案場ID','扣回金額'], fk:true,
+    cols:['扣回ID','案場ID','年月','工程請款ID','扣回金額','備註'],
+    hint:{'年月':'YYYY-MM','工程請款ID':'對應工程請款的 ID'} },
   { sheet:'支出登記', id:'支出ID', req:['案場ID','類型'], fk:true,
     cols:['支出ID','案場ID','類型','日期','廠商ID','發票號碼','項目','金額(含稅)','點工人員ID','工項','數量','小計','代扣所得稅','代扣二代健保','實際支付金額','撥款狀態','撥款日期','已撥金額','備註'],
     hint:{'類型':'材料設備／發票-發包／發票-點工／報酬單-點工／現金-點工','撥款狀態':'尚未撥款／撥部份款項／已撥款','廠商ID':'填廠商主檔的 ID','點工人員ID':'填點工人員主檔的 ID'} },
@@ -1414,23 +1636,26 @@ function renderMonthlyPanel() {
 
 // -- 發票登記 ---
 function renderInvoicePanel() {
-  const list = DATA['發票登記'].filter(i => i['案場ID'] === currentProjectId).sort((a,b) => String(b['發票日期']).localeCompare(String(a['發票日期'])));
-  const monthlyTotal = list.reduce((s,i) => {
-    const m = toYearMonth(i['發票日期']);
-    const nowM = new Date().toISOString().slice(0,7);
-    if (m === nowM) return s + (i['類型']==='三聯發票' ? Number(i['金額(含稅)']) : -Number(i['金額(含稅)']));
-    return s;
-  }, 0);
+  const pid = currentProjectId;
+  const list = DATA['發票登記'].filter(i => i['案場ID'] === pid).sort((a, b) => String(b['發票日期']).localeCompare(String(a['發票日期'])));
+  const paidOf = inv => DATA['收款登記'].filter(r => r['案場ID'] === pid && String(r['對應發票ID'] || '').split(',').map(x => x.trim()).includes(inv['發票ID']))
+    .reduce((s, r) => s + (Number(r['金額']) || 0), 0);
+  const rows = list.map(i => {
+    const amt = Number(i['金額(含稅)']) || 0;
+    const isAR = i['類型'] === '請款' || i['類型'] === '預收';
+    const paid = isAR ? paidOf(i) : null;
+    const form = i['類型'] === '請款' ? ' <span class="badge badge-dim">' + escapeHtml(i['發票形式'] || '三聯式發票') + '</span>' : '';
+    return `<tr><td>${escapeHtml(i['類型'])}${form}</td><td>${escapeHtml(i['統一編號'] || '')}</td><td>${toDateStr(i['發票日期'])}</td><td>${escapeHtml(i['發票號碼'] || '')}</td><td>${escapeHtml(i['項目'] || '')}</td><td>${fmt(amt)}</td><td>${paid === null ? '—' : fmt(paid)}</td><td>${paid === null ? '—' : fmt(Math.max(0, amt - paid))}</td><td>${escapeHtml(i['備註'] || '')}</td><td><button class="btn btn-dark btn-sm" onclick="openSubEdit('發票登記','${i['發票ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('發票登記','${i['發票ID']}')">✕</button></td></tr>`;
+  }).join('');
   return `
-    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px">
-      <div class="stat-chip">本月累計發票淨額（三聯－折讓－扣抵）: <b>${fmt(monthlyTotal)}</b></div>
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;flex-wrap:wrap;gap:8px">
+      <div class="stat-chip">發票為稅務開立紀錄；權責收入以「工程請款」為準，已收／未收依收款登記的對應發票計算</div>
       <button class="btn btn-primary btn-sm" onclick="openSubEdit('發票登記',null)">+ 新增發票</button>
     </div>
     <table>
-      <thead><tr><th>類型</th><th>統編</th><th>發票日期</th><th>發票號碼</th><th>項目</th><th>金額(含稅)</th><th>備註</th><th>操作</th></tr></thead>
-      <tbody>${list.length ? list.map(i => `<tr><td>${escapeHtml(i['類型'])}</td><td>${escapeHtml(i['統一編號']||'')}</td><td>${toDateStr(i['發票日期'])}</td><td>${escapeHtml(i['發票號碼']||'')}</td><td>${escapeHtml(i['項目']||'')}</td><td>${fmt(i['金額(含稅)'])}</td><td>${escapeHtml(i['備註']||'')}</td><td><button class="btn btn-dark btn-sm" onclick="openSubEdit('發票登記','${i['發票ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('發票登記','${i['發票ID']}')">✕</button></td></tr>`).join('') : '<tr><td colspan="8" class="empty">尚無發票資料</td></tr>'}</tbody>
-    </table>
-  `;
+      <thead><tr><th>類型</th><th>統編</th><th>發票日期</th><th>發票號碼</th><th>項目</th><th>金額(含稅)</th><th>已收</th><th>未收</th><th>備註</th><th>操作</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="10" class="empty">尚無發票資料</td></tr>'}</tbody>
+    </table>`;
 }
 
 // -- 收款 ---
@@ -1440,19 +1665,19 @@ function renderPaymentPanel() {
     <button class="btn btn-primary btn-sm" style="margin-bottom:10px" onclick="openSubEdit('收款登記',null)">+ 新增收款</button>
     <table>
       <thead><tr><th>方式</th><th>日期</th><th>金額</th><th>銀行</th><th>支票號碼</th><th>手續費</th><th>狀態</th><th>對應發票ID</th><th>操作</th></tr></thead>
-      <tbody>${list.length ? list.map(r => `<tr><td>${escapeHtml(r['方式'])}</td><td>${toDateStr(r['日期'])}</td><td>${fmt(r['金額'])}</td><td>${escapeHtml(r['銀行']||'')}</td><td>${escapeHtml(r['支票號碼']||'')}</td><td>${fmt(r['手續費'])}</td><td>${escapeHtml(r['狀態']||'')}</td><td>${escapeHtml(r['對應發票ID']||'')}</td><td><button class="btn btn-dark btn-sm" onclick="openSubEdit('收款登記','${r['收款ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('收款登記','${r['收款ID']}')">✕</button></td></tr>`).join('') : '<tr><td colspan="9" class="empty">尚無收款資料</td></tr>'}</tbody>
+      <tbody>${list.length ? list.map(r => `<tr><td>${escapeHtml(r['方式'])}${r['收款類型']==='預收訂金' ? ' <span class="badge badge-warn">預收</span>' : ''}</td><td>${toDateStr(r['日期'])}</td><td>${fmt(r['金額'])}</td><td>${escapeHtml(r['銀行']||'')}</td><td>${escapeHtml(r['支票號碼']||'')}</td><td>${fmt(r['手續費'])}</td><td>${escapeHtml(r['狀態']||'')}</td><td>${escapeHtml(r['對應發票ID']||'')}</td><td><button class="btn btn-dark btn-sm" onclick="openSubEdit('收款登記','${r['收款ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('收款登記','${r['收款ID']}')">✕</button></td></tr>`).join('') : '<tr><td colspan="9" class="empty">尚無收款資料</td></tr>'}</tbody>
     </table>
   `;
 }
 
 // -- 預估收支（表格直接編輯 + 表單新增）---
 const EST_CATS = ['材料','工數','發包','折讓','其他'];
-// 實際口徑（與儀表板一致）：收入＝收款登記－折讓／扣抵；支出＝支出登記（報酬單取實際支付）
+// 實際口徑（與儀表板一致）：收入＝請款發票（權責，依發票日）－折讓／扣抵，預收不計收入；支出＝支出登記（報酬單取實際支付）
 function monthActuals(pid) {
   const byYm = {};
   const get = ym => (byYm[ym] = byYm[ym] || { actInc: 0, actExp: 0, actCat: {} });
-  DATA['收款登記'].filter(r => r['案場ID'] === pid).forEach(r => {
-    const ym = toYearMonth(r['日期']); if (ym) get(ym).actInc += Number(r['金額']) || 0;
+  DATA['工程請款'].filter(r => r['案場ID'] === pid).forEach(r => {
+    const ym = toYearMonth(r['日期']); if (ym) get(ym).actInc += Number(r['工程款金額']) || 0;
   });
   DATA['發票登記'].filter(r => r['案場ID'] === pid && (r['類型'] === '折讓' || r['類型'] === '扣抵')).forEach(r => {
     const ym = toYearMonth(r['發票日期']); if (ym) get(ym).actInc -= Number(r['金額(含稅)']) || 0;
@@ -1611,13 +1836,7 @@ async function upsertEstimate(sheet, ym, keyCol, keyVal, field, value) {
 function renderExpensePanel() {
   const list = DATA['支出登記'].filter(e => e['案場ID'] === currentProjectId).sort((a,b) => String(b['日期']).localeCompare(String(a['日期'])));
   return `
-    <div class="expense-type-tabs">
-      <button class="expense-type-btn" onclick="openSubEdit('支出登記',null,'材料設備')">+ 材料/設備</button>
-      <button class="expense-type-btn" onclick="openSubEdit('支出登記',null,'發票-發包')">+ 發票-發包</button>
-      <button class="expense-type-btn" onclick="openSubEdit('支出登記',null,'發票-點工')">+ 發票-點工</button>
-      <button class="expense-type-btn" onclick="openSubEdit('支出登記',null,'報酬單-點工')">+ 報酬單-點工</button>
-      <button class="expense-type-btn" onclick="openSubEdit('支出登記',null,'現金-點工')">+ 現金-點工</button>
-    </div>
+    <button class="btn btn-primary btn-sm" style="margin-bottom:10px" onclick="openSubEdit('支出登記',null)">+ 新增應付</button>
     <table>
       <thead><tr><th>類型</th><th>日期</th><th>對象</th><th>項目</th><th>金額</th><th>稅金</th><th>實際支付</th><th>撥款</th><th>備註</th><th>操作</th></tr></thead>
       <tbody>${list.length ? list.map(e => {
@@ -1625,7 +1844,7 @@ function renderExpensePanel() {
         const amt = getExpenseAmt(e);
         const tax = e['類型']==='報酬單-點工' ? `所得稅${fmt(e['代扣所得稅'])} + 健保${fmt(e['代扣二代健保'])}` : '—';
         const actual = e['類型']==='報酬單-點工' ? fmt(e['實際支付金額']) : fmt(amt);
-        return `<tr><td>${escapeHtml(e['類型'])}</td><td>${toDateStr(e['日期'])}</td><td>${escapeHtml(target)}</td><td>${escapeHtml(e['項目']||'')}</td><td>${fmt(amt)}</td><td>${tax}</td><td>${actual}</td><td>${escapeHtml(e['撥款狀態']||'尚未撥款')}${e['撥款日期'] ? '<br><small>'+toDateStr(e['撥款日期'])+'</small>' : ''}${(e['撥款狀態']==='撥部份款項') ? '<br><small>已撥 '+fmt(e['已撥金額'])+'</small>' : ''}</td><td>${escapeHtml(e['備註']||'')}</td><td><button class="btn btn-dark btn-sm" onclick="openSubEdit('支出登記','${e['支出ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('支出登記','${e['支出ID']}')">✕</button></td></tr>`;
+        return `<tr><td>${escapeHtml(APTYPE_LABEL[e['類型']] || e['類型'])}</td><td>${toDateStr(e['日期'])}</td><td>${escapeHtml(target)}</td><td>${escapeHtml(e['項目']||'')}</td><td>${fmt(amt)}</td><td>${tax}</td><td>${actual}</td><td>${escapeHtml(e['撥款狀態']||'尚未撥款')}${e['撥款日期'] ? '<br><small>'+toDateStr(e['撥款日期'])+'</small>' : ''}${(e['撥款狀態']==='撥部份款項') ? '<br><small>已撥 '+fmt(e['已撥金額'])+'</small>' : ''}</td><td>${escapeHtml(e['備註']||'')}</td><td><button class="btn btn-dark btn-sm" onclick="openSubEdit('支出登記','${e['支出ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('支出登記','${e['支出ID']}')">✕</button></td></tr>`;
       }).join('') : '<tr><td colspan="10" class="empty">尚無支出資料</td></tr>'}</tbody>
     </table>
   `;
@@ -1654,10 +1873,13 @@ function openSubEdit(sheetName, rowId, defaultType) {
   document.getElementById('sub-modal-title').innerText = sheetName === '案場預算' ? '設定案場預算' : ((rowId ? '編輯' : '新增') + '：' + sheetName + (defaultType ? ' (' + defaultType + ')' : ''));
   document.getElementById('sub-modal-body').innerHTML = renderSubForm(sheetName, existingRow || {}, defaultType);
   document.getElementById('sub-modal').style.display = 'flex';
+  if (sheetName === '預收扣回明細') prepaySuggest(!rowId);
 }
 function closeSubModal() { document.getElementById('sub-modal').style.display = 'none'; subEditContext = null; }
 
 function renderSubForm(sheetName, r, defaultType) {
+  if (sheetName === '預收扣回明細') return renderPrepayForm(r);
+  if (sheetName === '工程請款') return renderWorkForm(r);
   if (sheetName === '合約明細') {
     return `<div class="form-grid">
       <div class="full"><label>項目名稱 *</label><input type="text" id="sf-name" value="${escapeHtml(r['項目名稱']||'')}"></div>
@@ -1681,7 +1903,8 @@ function renderSubForm(sheetName, r, defaultType) {
   }
   if (sheetName === '發票登記') {
     return `<div class="form-grid">
-      <div><label>類型 *</label><select id="sf-type"><option value="三聯發票" ${r['類型']==='三聯發票'||!r['類型']?'selected':''}>三聯發票</option><option value="折讓" ${r['類型']==='折讓'?'selected':''}>折讓</option><option value="扣抵" ${r['類型']==='扣抵'?'selected':''}>扣抵</option></select></div>
+      <div><label>類型 *</label><select id="sf-type"><option value="請款" ${r['類型']==='請款'||!r['類型']?'selected':''}>請款發票（計入權責收入）</option><option value="預收" ${r['類型']==='預收'?'selected':''}>預收（預收收據／發票，不計收入）</option><option value="折讓" ${r['類型']==='折讓'?'selected':''}>折讓</option><option value="扣抵" ${r['類型']==='扣抵'?'selected':''}>扣抵</option></select></div>
+      <div><label>發票形式 *</label><select id="sf-inv-form"><option value="三聯式發票" ${(r['發票形式']||'三聯式發票')==='三聯式發票'?'selected':''}>三聯式發票</option><option value="電子發票" ${r['發票形式']==='電子發票'?'selected':''}>電子發票</option></select></div>
       <div><label>統一編號</label><input type="text" id="sf-tax-id" value="${escapeHtml(r['統一編號']||'')}"></div>
       <div><label>發票日期</label><input type="date" id="sf-date" value="${toDateStr(r['發票日期']) || new Date().toISOString().slice(0,10)}"></div>
       <div><label>發票號碼</label><input type="text" id="sf-inv-no" value="${escapeHtml(r['發票號碼']||'')}" placeholder="AB12345678"></div>
@@ -1692,8 +1915,9 @@ function renderSubForm(sheetName, r, defaultType) {
   }
   if (sheetName === '收款登記') {
     const estSel = r['對應預估收入ID'] || autoEstIdFor(r);
-    const invoiceOptions = DATA['發票登記'].filter(i => i['案場ID'] === currentProjectId && i['類型'] === '三聯發票').map(i => `<option value="${i['發票ID']}">${i['發票ID']} - ${escapeHtml(i['發票號碼']||'無號')} - ${fmt(i['金額(含稅)'])}</option>`).join('');
+    const invoiceOptions = DATA['發票登記'].filter(i => i['案場ID'] === currentProjectId && i['類型'] === '請款').map(i => `<option value="${i['發票ID']}">${i['發票ID']} - ${escapeHtml(i['發票號碼']||'無號')} - ${fmt(i['金額(含稅)'])}</option>`).join('');
     return `<div class="form-grid">
+      <div><label>收款類型 *</label><select id="sf-pay-type"><option value="工程款" ${r['收款類型']!=='預收訂金'?'selected':''}>工程款（計入現金）</option><option value="預收訂金" ${r['收款類型']==='預收訂金'?'selected':''}>預收訂金（不計收入）</option></select></div>
       <div><label>方式 *</label><select id="sf-method"><option value="匯款" ${r['方式']==='匯款'||!r['方式']?'selected':''}>匯款</option><option value="支票" ${r['方式']==='支票'?'selected':''}>支票</option></select></div>
       <div><label>日期</label><input type="date" id="sf-date" value="${toDateStr(r['日期'])||new Date().toISOString().slice(0,10)}"></div>
       <div><label>金額 *</label><input type="number" id="sf-amt" value="${r['金額']||0}"></div>
@@ -1702,7 +1926,7 @@ function renderSubForm(sheetName, r, defaultType) {
       <div><label>手續費</label><input type="number" id="sf-fee" value="${r['手續費']||0}"></div>
       <div><label>狀態</label><select id="sf-status"><option value="已入帳" ${r['狀態']==='已入帳'?'selected':''}>已入帳（匯款）</option><option value="到期" ${r['狀態']==='到期'?'selected':''}>到期（支票）</option><option value="兌現" ${r['狀態']==='兌現'?'selected':''}>兌現（支票）</option><option value="退票" ${r['狀態']==='退票'?'selected':''}>退票</option></select></div>
       <div class="full"><label>對應預估收入（依年月與方式自動配對，可改）</label><select id="sf-est-id"><option value="">不對應</option>${DATA['預估收入'].filter(x => x['案場ID'] === currentProjectId).map(x => `<option value="${x['預估收入ID']}" ${estSel===x['預估收入ID']?'selected':''}>${escapeHtml(x['年月'])} ${escapeHtml(x['方式']||'')} ${fmt(x['預估金額'])}</option>`).join('')}</select></div>
-      <div class="full"><label>對應發票ID（可多選，用逗號分隔）</label><input type="text" id="sf-inv-ids" value="${escapeHtml(r['對應發票ID']||'')}" placeholder="例：I0001,I0003"><div style="font-size:11px;color:var(--dim);margin-top:4px">本案場的發票：${invoiceOptions ? DATA['發票登記'].filter(i => i['案場ID'] === currentProjectId && i['類型']==='三聯發票').map(i => i['發票ID']).join(', ') : '無'}</div></div>
+      <div class="full"><label>對應發票ID（可多選，用逗號分隔）</label><input type="text" id="sf-inv-ids" value="${escapeHtml(r['對應發票ID']||'')}" placeholder="例：I0001,I0003"><div style="font-size:11px;color:var(--dim);margin-top:4px">本案場的發票：${invoiceOptions ? DATA['發票登記'].filter(i => i['案場ID'] === currentProjectId && i['類型']==='請款').map(i => i['發票ID']).join(', ') : '無'}</div></div>
       <div class="full"><label>備註</label><textarea id="sf-note">${escapeHtml(r['備註']||'')}</textarea></div>
     </div>`;
   }
@@ -1721,10 +1945,10 @@ function renderSubForm(sheetName, r, defaultType) {
     const type = r['類型'] || defaultType || '材料設備';
     const vendorOptions = '<option value="">選擇廠商</option>' + DATA['廠商主檔'].map(v => `<option value="${v['廠商ID']}" ${r['廠商ID']===v['廠商ID']?'selected':''}>${escapeHtml(v['統一編號']||'—')} ${escapeHtml(v['廠商名稱'])}</option>`).join('');
     const workerOptions = '<option value="">選擇人員</option>' + DATA['點工人員主檔'].map(w => `<option value="${w['人員ID']}" ${r['點工人員ID']===w['人員ID']?'selected':''}>${escapeHtml(w['姓名'])}</option>`).join('');
-    const isVendor = type === '材料設備' || type === '發票-發包' || type === '發票-點工';
+    const isVendor = type === '材料設備' || type === '發票-發包' || type === '發票-點工' || type === '收據';
     const isWorker = type === '報酬單-點工' || type === '現金-點工';
     return `<div class="form-grid">
-      <div><label>類型 *</label><select id="sf-type" onchange="reopenExpenseWithType(this.value)"><option value="材料設備" ${type==='材料設備'?'selected':''}>材料設備</option><option value="發票-發包" ${type==='發票-發包'?'selected':''}>發票-發包</option><option value="發票-點工" ${type==='發票-點工'?'selected':''}>發票-點工</option><option value="報酬單-點工" ${type==='報酬單-點工'?'selected':''}>報酬單-點工</option><option value="現金-點工" ${type==='現金-點工'?'selected':''}>現金-點工</option></select></div>
+      <div><label>類型 *</label><select id="sf-type" onchange="reopenExpenseWithType(this.value)"><option value="材料設備" ${type==='材料設備'?'selected':''}>發票・材料</option><option value="發票-發包" ${type==='發票-發包'?'selected':''}>發票・發包</option><option value="發票-點工" ${type==='發票-點工'?'selected':''}>發票・點工</option><option value="收據" ${type==='收據'?'selected':''}>收據</option><option value="報酬單-點工" ${type==='報酬單-點工'?'selected':''}>勞務報酬</option><option value="現金-點工" ${type==='現金-點工'?'selected':''}>無憑證</option></select></div>
       <div><label>日期</label><input type="date" id="sf-date" value="${toDateStr(r['日期'])||new Date().toISOString().slice(0,10)}"></div>
       ${isVendor ? `
         <div class="full"><label>廠商 *</label><select id="sf-vendor">${vendorOptions}</select></div>
@@ -1823,6 +2047,7 @@ async function saveSubItem() {
   }
   if (sheetName === '發票登記') {
     data['類型'] = document.getElementById('sf-type').value;
+    data['發票形式'] = document.getElementById('sf-inv-form').value;
     data['統一編號'] = document.getElementById('sf-tax-id').value.trim();
     data['發票日期'] = document.getElementById('sf-date').value;
     data['發票號碼'] = document.getElementById('sf-inv-no').value.trim();
@@ -1831,6 +2056,7 @@ async function saveSubItem() {
     data['備註'] = document.getElementById('sf-note').value.trim();
   }
   if (sheetName === '收款登記') {
+    data['收款類型'] = document.getElementById('sf-pay-type').value;
     data['方式'] = document.getElementById('sf-method').value;
     data['日期'] = document.getElementById('sf-date').value;
     data['金額'] = Number(document.getElementById('sf-amt').value)||0;
@@ -1841,6 +2067,25 @@ async function saveSubItem() {
     data['對應發票ID'] = document.getElementById('sf-inv-ids').value.trim();
     data['對應預估收入ID'] = document.getElementById('sf-est-id').value || null;
     data['備註'] = document.getElementById('sf-note').value.trim();
+  }
+  if (sheetName === '工程請款') {
+    data['日期'] = document.getElementById('sf-date').value;
+    data['工程款金額'] = Number(document.getElementById('sf-amt').value) || 0;
+    data['發票ID'] = document.getElementById('sf-inv').value || '';
+    data['備註'] = document.getElementById('sf-note').value.trim();
+    if (!data['日期']) { alert('日期必填'); return; }
+    if (!(data['工程款金額'] > 0)) { alert('工程款金額必須大於 0'); return; }
+  }
+  if (sheetName === '預收扣回明細') {
+    data['年月'] = document.getElementById('sf-ym').value;
+    data['工程請款ID'] = document.getElementById('sf-work').value || '';
+    if (!data['工程請款ID']) { alert('請選擇對應工程請款'); return; }
+    data['扣回金額'] = Number(document.getElementById('sf-deduct').value) || 0;
+    data['備註'] = document.getElementById('sf-note').value.trim();
+    if (!data['年月']) { alert('年月必填'); return; }
+    if (!(data['扣回金額'] > 0)) { alert('扣回金額必須大於 0'); return; }
+    const rem = ppRemaining(ctx.projectId, ctx.rowId || null);
+    if (data['扣回金額'] > rem) { alert('扣回金額超過剩餘預收（剩餘 ' + fmt(rem) + '）'); return; }
   }
   if (sheetName === '案場預算') {
     data['材料預算'] = Number(document.getElementById('sf-budget-material').value)||0;
@@ -1858,7 +2103,7 @@ async function saveSubItem() {
     data['已撥金額'] = Number(document.getElementById('sf-pay-amt').value)||0;
     data['日期'] = document.getElementById('sf-date').value;
     data['備註'] = document.getElementById('sf-note').value.trim();
-    if (type === '材料設備' || type === '發票-發包' || type === '發票-點工') {
+    if (type === '材料設備' || type === '發票-發包' || type === '發票-點工' || type === '收據') {
       data['廠商ID'] = document.getElementById('sf-vendor').value;
       data['發票號碼'] = document.getElementById('sf-inv-no').value.trim();
       data['項目'] = document.getElementById('sf-item').value.trim();
