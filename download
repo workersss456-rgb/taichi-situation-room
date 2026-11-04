@@ -1,0 +1,10 @@
+# 機密檔案，絕不上 GitHub
+.env
+.env.*
+!.env.example
+
+# 相依套件
+node_modules/
+
+# 系統檔
+.DS_Store
