@@ -89,6 +89,15 @@ const TABLES = {
     idCol: '案場工項ID', prefix: 'Y', pad: 4,
     cols: ['案場ID','工項代碼','預估金額','完成百分比','更新日期','備註']
   },
+  // 計價單（施工進度）：計價明細＝每案場的施工項目；計價期次＝每期每項的本期完成數量
+  '計價明細': {
+    idCol: '明細ID', prefix: 'D', pad: 5,
+    cols: ['案場ID','期數','內容','單位','比率','單價','合約數量','合約金額','工項代碼','排序','備註']
+  },
+  '計價期次': {
+    idCol: '期次ID', prefix: 'P', pad: 5,
+    cols: ['案場ID','期次','明細ID','本期數量','本期金額','備註']
+  },
   // 發包合約：控管發票・發包的估驗累計不可超過合約金額
   '發包合約': {
     idCol: '發包合約ID', prefix: 'S', pad: 4,
@@ -279,6 +288,56 @@ async function checkRules(client, sheetName, action, rowId, data) {
         WHERE "案場ID" = $1 AND "工項代碼" = $2 AND ($3::text IS NULL OR "案場工項ID" <> $3)`,
       [cur['案場ID'], cur['工項代碼'], rowId || null]);
     if (dup.rowCount) throw new Error('此案場已有這個工項的進度，請直接編輯');
+    return;
+  }
+
+  // ---- 計價明細（計價單施工項目）----
+  if (sheetName === '計價明細') {
+    if (action === 'deleteRow') {
+      const { rows } = await client.query('SELECT count(*)::int AS n FROM "計價期次" WHERE "明細ID" = $1', [rowId]);
+      if (rows[0].n > 0) throw new Error('此計價項目已有期次登記，無法刪除（請先刪除相關期次）');
+      return;
+    }
+    const cur = await mergedRow(client, '計價明細', '明細ID', rowId, data);
+    const pct = nz(cur['比率']);
+    if (pct < 0 || pct > 100) throw new Error('比率需介於 0～100');
+    if (nz(cur['合約數量']) <= 0) throw new Error('合約數量必須大於 0');
+    if (nz(cur['單價']) < 0) throw new Error('單價不可為負數');
+    // 同一案場的比率合計不可超過 100%（計價單總和為 100%）
+    const { rows } = await client.query(
+      `SELECT COALESCE(SUM("比率"),0) AS v FROM "計價明細"
+        WHERE "案場ID" = $1 AND ($2::text IS NULL OR "明細ID" <> $2)`, [cur['案場ID'], rowId || null]);
+    if (nz(rows[0].v) + pct > 100 + 1e-9)
+      throw new Error('此案場計價項目比率合計超過 100%，目前其餘項目已佔 ' + nz(rows[0].v) + '%');
+    if (cur['工項代碼'] && !(await exists(client, 'SELECT 1 FROM "工項主檔" WHERE "工項代碼" = $1', [cur['工項代碼']])))
+      throw new Error('工項代碼不存在：' + cur['工項代碼']);
+    return;
+  }
+
+  // ---- 計價期次（每期本期完成）----
+  if (sheetName === '計價期次') {
+    if (action === 'deleteRow') return;
+    const cur = await mergedRow(client, '計價期次', '期次ID', rowId, data);
+    const line = await client.query('SELECT "案場ID" AS p, "合約數量" AS qty, "單價" AS price FROM "計價明細" WHERE "明細ID" = $1', [cur['明細ID']]);
+    if (!line.rows.length) throw new Error('找不到計價項目：' + cur['明細ID']);
+    if (line.rows[0].p !== cur['案場ID']) throw new Error('此計價項目不屬於這個案場');
+    if (!String(cur['期次'] || '').trim()) throw new Error('期次必填，例如 114/01');
+    const qty = nz(cur['本期數量']);
+    if (qty < 0) throw new Error('本期數量不可為負數');
+    // 同一項目的期次累計不可超過合約數量（advisory lock 避免同時寫入超量）
+    await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['line:' + cur['明細ID']]);
+    const dup = await client.query(
+      `SELECT "期次ID" AS id FROM "計價期次" WHERE "明細ID" = $1 AND "期次" = $2 AND ($3::text IS NULL OR "期次ID" <> $3)`,
+      [cur['明細ID'], cur['期次'], rowId || null]);
+    if (dup.rowCount) throw new Error('此項目在「' + cur['期次'] + '」已有登記，請直接編輯');
+    const used = await client.query(
+      `SELECT COALESCE(SUM("本期數量"),0) AS v FROM "計價期次"
+        WHERE "明細ID" = $1 AND ($2::text IS NULL OR "期次ID" <> $2)`, [cur['明細ID'], rowId || null]);
+    const remain = nz(line.rows[0].qty) - nz(used.rows[0].v);
+    if (qty > remain + 1e-9) throw new Error('超過合約數量，剩餘可登記 ' + remain);
+    // 本期金額必須等於 本期數量 × 單價（防止前端算錯）
+    const expect = Math.round(qty * nz(line.rows[0].price) * 100) / 100;
+    if (Math.abs(nz(cur['本期金額']) - expect) > 1) throw new Error('本期金額應為 ' + expect + ' 元（本期數量 × 單價）');
     return;
   }
 

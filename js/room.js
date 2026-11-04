@@ -11,7 +11,7 @@ let serverDataVersion = '0';
 // 資料快取（從後端 GET 拉來的）
 let DATA = {
   '案場主檔': [], '合約明細': [], '廠商主檔': [], '點工人員主檔': [],
-  '月度請款': [], '發票登記': [], '收款登記': [], '支出登記': [], '案場預算': [], '預估收入': [], '預估支出': [], '預收扣回明細': [], '工程請款': [], '工項主檔': [], '案場工項': [], '發包合約': []
+  '月度請款': [], '發票登記': [], '收款登記': [], '支出登記': [], '案場預算': [], '預估收入': [], '預估支出': [], '預收扣回明細': [], '工程請款': [], '工項主檔': [], '案場工項': [], '發包合約': [], '計價明細': [], '計價期次': []
 };
 
 // 當前開啟的案場詳情
@@ -1583,6 +1583,7 @@ function renderSubForm(sheetName, r, defaultType) {
   if (sheetName === '預收扣回明細') return renderPrepayForm(r);
   if (sheetName === '工程請款') return renderWorkForm(r);
   if (sheetName === '工項主檔') return renderItemForm(r);
+  if (sheetName === '計價明細') return renderLineForm(r);
   if (sheetName === '案場工項') return renderProgressForm(r);
   if (sheetName === '發包合約') return renderContractForm(r);
   if (sheetName === '合約明細') {
@@ -1885,6 +1886,22 @@ async function saveSubItem() {
     data['備註'] = document.getElementById('sf-note').value.trim();
     if (!data['廠商ID']) { alert('請選擇廠商'); return; }
   }
+  if (sheetName === '計價明細') {
+    const pct = Number(document.getElementById('sf-ratio').value) || 0;
+    const proj = DATA['案場主檔'].find(x => x['案場ID'] === ctx.projectId) || {};
+    const priceIn = document.getElementById('sf-price').value;
+    data['期數'] = document.getElementById('sf-period-no').value.trim();
+    data['內容'] = document.getElementById('sf-content').value.trim();
+    data['單位'] = document.getElementById('sf-unit').value.trim() || '式';
+    data['比率'] = pct;
+    data['單價'] = priceIn === '' ? Math.round(pct / 100 * nz(proj['主約未稅金額']) * 100) / 100 : Number(priceIn);
+    data['合約數量'] = Number(document.getElementById('sf-qty').value) || 0;
+    data['合約金額'] = Math.round(data['合約數量'] * data['單價'] * 100) / 100;
+    data['工項代碼'] = document.getElementById('sf-wbs').value || null;
+    data['備註'] = document.getElementById('sf-note').value.trim();
+    if (!data['期數'] || !data['內容']) { alert('期數與內容必填'); return; }
+    if (!ctx.rowId) data['排序'] = DATA['計價明細'].filter(l => l['案場ID'] === ctx.projectId).length + 1;
+  }
   try {
     if (ctx.rowId) await callApi('updateRow', { sheetName, rowId: ctx.rowId, data });
     else await callApi('createRow', { sheetName, data });
@@ -2040,12 +2057,17 @@ function calcRetention(pid) {
 
 // 施工進度＝Σ(工項預估金額×完成%)÷Σ工項預估金額；請款進度＝累計已請款÷合約總額
 function calcProgress(pid) {
-  const rows = DATA['案場工項'].filter(x => x['案場ID'] === pid);
-  const est = rows.reduce((s, x) => s + nz(x['預估金額']), 0);
-  const done = rows.reduce((s, x) => s + nz(x['預估金額']) * nz(x['完成百分比']) / 100, 0);
+  // 施工進度＝Σ(比率 × 累計完成數量÷合約數量)；請款進度另由 calcTotalInvoiceForProject 算
+  const lines = linesOf(pid);
+  let constr = 0, billedAmt = 0;
+  lines.forEach(l => {
+    const qty = nz(l['合約數量']) || 1;
+    constr += nz(l['比率']) * Math.min(1, lineCumQty(l['明細ID']) / qty);
+    billedAmt += lineCumAmt(l['明細ID']);
+  });
   const contract = calcContractTotalIncl(pid);
   const billing = contract > 0 ? calcTotalInvoiceForProject(pid, null, null) / contract * 100 : null;
-  return { est, done, construction: est > 0 ? done / est * 100 : null, billing, rows };
+  return { est: contract, done: constr / 100 * contract, construction: lines.length ? constr : null, billing, rows: lines, billedAmt };
 }
 
 function wbsOptions(selected) {
@@ -2106,32 +2128,176 @@ function renderContractForm(r) {
 }
 
 // -- 子分頁 --
+// 計價單（施工進度）：計價明細（施工項目）＋每期本期完成數量
+let PROG_PERIOD = '';
+const NEW_PERIOD = '__new__';
+function linesOf(pid) {
+  return DATA['計價明細'].filter(l => l['案場ID'] === pid)
+    .sort((a, b) => (nz(a['排序']) - nz(b['排序'])) || String(a['期數']).localeCompare(String(b['期數'])));
+}
+function periodsOf(pid) {
+  return [...new Set(DATA['計價期次'].filter(e => e['案場ID'] === pid).map(e => e['期次']))].sort();
+}
+function lineCumQty(lineId) { return DATA['計價期次'].filter(e => e['明細ID'] === lineId).reduce((s, e) => s + nz(e['本期數量']), 0); }
+function lineCumAmt(lineId) { return DATA['計價期次'].filter(e => e['明細ID'] === lineId).reduce((s, e) => s + nz(e['本期金額']), 0); }
+function periodEntry(lineId, period) { return DATA['計價期次'].find(e => e['明細ID'] === lineId && e['期次'] === period); }
+function periodName() {
+  if (PROG_PERIOD !== NEW_PERIOD) return PROG_PERIOD;
+  const el = document.getElementById('prog-newperiod');
+  return el ? el.value.trim() : '';
+}
+function setProgPeriod(v) { PROG_PERIOD = v; renderDetailBody(); }
+function progRecalc(inp) {
+  const price = Number(inp.dataset.price) || 0;
+  const amt = (Number(inp.value) || 0) * price;
+  const cell = inp.closest('tr').querySelector('.prog-amt');
+  if (cell) cell.textContent = fmt(amt);
+}
+
 function renderProgressPanel() {
-  const p = calcProgress(currentProjectId);
-  const contract = calcContractTotalIncl(currentProjectId);
-  const rows = p.rows.slice().sort((a, b) => String(a['工項代碼']).localeCompare(String(b['工項代碼'])));
-  const gap = (p.billing !== null && p.construction !== null) ? p.billing - p.construction : null;
-  const gapTxt = gap === null ? '—' : (gap >= 0
-    ? `請款領先施工 ${gap.toFixed(1)} 個百分點，留意是否提早請款`
-    : `施工領先請款 ${(-gap).toFixed(1)} 個百分點，留意收款進度`);
+  const pid = currentProjectId;
+  const lines = linesOf(pid);
+  const periods = periodsOf(pid);
+  if (!PROG_PERIOD || (!periods.includes(PROG_PERIOD) && PROG_PERIOD !== NEW_PERIOD)) PROG_PERIOD = periods[periods.length - 1] || NEW_PERIOD;
+  const p = calcProgress(pid);
+  const ratioSum = lines.reduce((s, l) => s + nz(l['比率']), 0);
+  const name = periodName();
+  const opts = periods.map(x => `<option value="${escapeHtml(x)}" ${x === PROG_PERIOD ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('')
+    + `<option value="${NEW_PERIOD}" ${PROG_PERIOD === NEW_PERIOD ? 'selected' : ''}>＋ 新期次</option>`;
+  const ratioWarn = lines.length && Math.abs(ratioSum - 100) > 0.001
+    ? `<span class="badge badge-warn">比率合計 ${ratioSum.toFixed(2)}%，應為 100%</span>` : '';
+  const rows = lines.map(l => {
+    const id = l['明細ID'], qty = nz(l['合約數量']) || 1, price = nz(l['單價']);
+    const cum = lineCumQty(id);
+    const e = name ? periodEntry(id, name) : null;
+    const pq = e ? nz(e['本期數量']) : '';
+    return `<tr>
+      <td>${escapeHtml(l['期數'])}</td><td>${escapeHtml(l['內容'])}</td><td>${escapeHtml(l['單位'] || '')}</td>
+      <td>${nz(l['比率']).toFixed(2)}%</td><td>${fmt(price)}</td><td>${nz(l['合約數量'])}</td>
+      <td>${cum}</td><td>${pctTxt(Math.min(100, cum / qty * 100))}</td>
+      <td><input type="number" step="0.01" min="0" class="cell-input" data-line="${id}" data-price="${price}" value="${pq}" oninput="progRecalc(this)" ${name ? '' : 'disabled'}></td>
+      <td class="prog-amt">${fmt(pq ? pq * price : 0)}</td>
+      <td style="white-space:nowrap"><button class="btn btn-dark btn-sm" onclick="openSubEdit('計價明細','${id}')">✎</button> <button class="del-btn" onclick="deleteSubItem('計價明細','${id}')">✕</button></td>
+    </tr>`;
+  }).join('');
   return `
     <div style="margin-bottom:10px">
-      <span class="stat-chip">工項預估合計 <b>${fmt(p.est)}</b></span>
-      <span class="stat-chip">合約總額 <b>${fmt(contract)}</b></span>
+      <span class="stat-chip">計價項目 <b>${lines.length}</b></span>
+      <span class="stat-chip">比率合計 <b>${ratioSum.toFixed(2)}%</b></span>
       <span class="stat-chip">施工進度 <b>${pctTxt(p.construction)}</b></span>
+      <span class="stat-chip">累計請款 <b>${fmt(p.billedAmt)}</b></span>
       <span class="stat-chip">請款進度 <b>${pctTxt(p.billing)}</b></span>
+      ${ratioWarn}
     </div>
-    <div style="margin-bottom:12px;font-size:12.5px;color:var(--dim)">${gapTxt}　｜　施工進度＝Σ(工項預估金額×完成%)÷Σ工項預估金額</div>
-    <button class="btn btn-primary btn-sm" style="margin-bottom:10px" onclick="openSubEdit('案場工項',null)">+ 新增工項進度</button>
-    <div style="overflow-x:auto"><table>
-      <thead><tr><th>工項代碼</th><th>工項</th><th>預估金額</th><th>完成%</th><th>預估完成額</th><th>更新日期</th><th>操作</th></tr></thead>
-      <tbody>${rows.length ? rows.map(x => {
-        const est = nz(x['預估金額']), pc = nz(x['完成百分比']);
-        return `<tr><td>${escapeHtml(x['工項代碼'])}</td><td>${escapeHtml(itemNameOf(x['工項代碼']))}</td><td>${fmt(est)}</td><td>${pc.toFixed(0)}%</td><td>${fmt(est * pc / 100)}</td><td>${escapeHtml(x['更新日期'] || '')}</td>
-          <td><button class="btn btn-dark btn-sm" onclick="openSubEdit('案場工項','${x['案場工項ID']}')">✎</button> <button class="del-btn" onclick="deleteSubItem('案場工項','${x['案場工項ID']}')">✕</button></td></tr>`;
-      }).join('') : '<tr><td colspan="7" class="empty">尚未設定工項進度，點上方「新增工項進度」開始</td></tr>'}</tbody>
+    <div class="filter-row">
+      <label>期次：</label>
+      <select onchange="setProgPeriod(this.value)" style="min-width:140px">${opts}</select>
+      ${PROG_PERIOD === NEW_PERIOD ? `<input type="text" id="prog-newperiod" placeholder="如 114/03" style="min-width:120px">` : ''}
+      <button class="btn btn-primary btn-sm" onclick="saveProgressPeriod()" ${lines.length ? '' : 'disabled'}>💾 儲存本期</button>
+      <button class="btn btn-dark btn-sm" onclick="openSubEdit('計價明細',null)">+ 新增項目</button>
+      <button class="btn btn-dark btn-sm" onclick="printProgress()">🖨 列印計價單</button>
+    </div>
+    <div class="sub" style="margin-bottom:8px">施工進度＝Σ(比率 × 累計完成數量÷合約數量)。本期數量填在「本期完成數量」，儲存時系統會檢查不可超過合約數量。</div>
+    <div style="overflow-x:auto"><table id="prog-table">
+      <thead><tr><th>期數</th><th>內容</th><th>單位</th><th>比率</th><th>單價</th><th>合約數量</th><th>累計數量</th><th>累計完成</th><th>本期完成數量</th><th>本期金額</th><th>操作</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="11" class="empty">尚無計價項目。可按「+ 新增項目」，或由管理者匯入計價單種子資料。</td></tr>'}</tbody>
     </table></div>`;
 }
+
+async function saveProgressPeriod() {
+  const name = periodName();
+  if (!name) { alert('請選擇或輸入期次，例如 114/03'); return; }
+  const changes = [];
+  document.querySelectorAll('#prog-table input[data-line]').forEach(inp => {
+    const raw = inp.value.trim();
+    if (raw === '') return; // 空白＝不動
+    const lineId = inp.dataset.line, price = Number(inp.dataset.price) || 0;
+    const qty = Number(raw);
+    const e = periodEntry(lineId, name);
+    if (e && Math.abs(nz(e['本期數量']) - qty) < 1e-9) return;
+    if (!e && qty === 0) return;
+    changes.push({ lineId, e, qty, amt: Math.round(qty * price * 100) / 100 });
+  });
+  if (!changes.length) { alert('沒有需要儲存的變更'); return; }
+  setSync('儲存本期中...');
+  let done = 0;
+  try {
+    for (const c of changes) {
+      const data = { '案場ID': currentProjectId, '期次': name, '明細ID': c.lineId, '本期數量': c.qty, '本期金額': c.amt };
+      if (c.e) await callApi('updateRow', { sheetName: '計價期次', rowId: c.e['期次ID'], data });
+      else await callApi('createRow', { sheetName: '計價期次', data });
+      done++;
+    }
+  } catch (err) {
+    alert('儲存中斷（已完成 ' + done + ' 筆）：' + err.message + '\n已儲存的保留，修正後再按一次即可。');
+  }
+  PROG_PERIOD = name;
+  await reloadFromCloud(false);
+}
+
+function renderLineForm(r) {
+  return `<div class="form-grid">
+    <div><label>期數 *（如 00094）</label><input type="text" id="sf-period-no" value="${escapeHtml(r['期數'] || '')}"></div>
+    <div class="half"><label>內容 *</label><input type="text" id="sf-content" value="${escapeHtml(r['內容'] || '')}"></div>
+    <div><label>單位</label><input type="text" id="sf-unit" value="${escapeHtml(r['單位'] || '式')}"></div>
+    <div><label>比率(%) *</label><input type="number" step="0.01" id="sf-ratio" value="${r['比率'] ?? ''}"></div>
+    <div><label>單價（留空＝比率×主約未稅金額）</label><input type="number" step="0.01" id="sf-price" value="${r['單價'] ?? ''}"></div>
+    <div><label>合約數量</label><input type="number" step="0.01" id="sf-qty" value="${r['合約數量'] ?? 1}"></div>
+    <div class="full"><label>對應工項（選填，用於成本歸類）</label><select id="sf-wbs">${wbsOptions(r['工項代碼'])}</select></div>
+    <div class="full"><label>備註</label><textarea id="sf-note">${escapeHtml(r['備註'] || '')}</textarea></div>
+  </div>`;
+}
+
+function printProgress() {
+  const pid = currentProjectId;
+  const proj = DATA['案場主檔'].find(x => x['案場ID'] === pid) || {};
+  const name = periodName() || '—';
+  const lines = linesOf(pid);
+  let periodAmt = 0, contractAmt = 0;
+  const trs = lines.map(l => {
+    const e = periodName() ? periodEntry(l['明細ID'], periodName()) : null;
+    const pq = e ? nz(e['本期數量']) : 0, pa = e ? nz(e['本期金額']) : 0;
+    periodAmt += pa; contractAmt += nz(l['合約金額']);
+    return `<tr><td>${escapeHtml(l['期數'])}</td><td>${escapeHtml(l['內容'])}</td><td>${escapeHtml(l['單位'] || '')}</td>
+      <td class="r">${nz(l['比率']).toFixed(2)}%</td><td class="r">${fmt(l['單價']).replace('NT$', '')}</td><td class="r">${nz(l['合約數量'])}</td>
+      <td class="r">${pq || ''}</td><td class="r">${pa ? fmt(pa).replace('NT$', '') : ''}</td>
+      <td class="r">${lineCumQty(l['明細ID'])}</td><td class="r">${fmt(lineCumAmt(l['明細ID'])).replace('NT$', '')}</td></tr>`;
+  }).join('');
+  const today = new Date().toLocaleDateString('zh-TW');
+  const html = `<!DOCTYPE html><html lang="zh-TW"><head><meta charset="UTF-8"><title>計價單 ${escapeHtml(proj['案場名稱'] || '')} ${escapeHtml(name)}</title>
+  <style>
+    body{font-family:"PingFang TC","Microsoft JhengHei",sans-serif;font-size:12px;color:#000;margin:20px}
+    h1{font-size:18px;text-align:center;margin:0}
+    h2{font-size:14px;text-align:center;margin:4px 0 12px}
+    .meta{display:grid;grid-template-columns:1fr 1fr;gap:4px 24px;margin-bottom:10px}
+    table{width:100%;border-collapse:collapse}
+    th,td{border:1px solid #000;padding:3px 4px;vertical-align:middle}
+    th{background:#eee}
+    .r{text-align:right}
+    tfoot td{font-weight:700}
+    .sign{display:flex;gap:16px;margin-top:20px}
+    .sign div{flex:1;border:1px solid #000;height:90px;padding:4px;font-size:12px}
+    @media print{ body{margin:8mm} }
+  </style></head><body>
+  <h1>${escapeHtml(proj['業主'] || '')}</h1>
+  <h2>${escapeHtml(proj['案場名稱'] || '')} 計價單</h2>
+  <div class="meta">
+    <div>合約編號：${escapeHtml(pid)}</div><div>製表日期：${today}</div>
+    <div>承 包 商：太綺水電工程有限公司</div><div>請款期間：${escapeHtml(name)}</div>
+    <div>工程名稱：${escapeHtml(proj['案場名稱'] || '')}</div><div>合約未稅總額：${fmt(proj['主約未稅金額']).replace('NT$', '')}</div>
+  </div>
+  <table><thead><tr><th>期數</th><th>內容</th><th>單位</th><th>比率</th><th>單價</th><th>合約數量</th><th>本期數量</th><th>本期金額</th><th>累計數量</th><th>累計金額</th></tr></thead>
+  <tbody>${trs}</tbody>
+  <tfoot><tr><td colspan="7" class="r">合 計</td><td class="r">${fmt(periodAmt).replace('NT$', '')}</td><td></td><td class="r">${fmt(lines.reduce((s, l) => s + lineCumAmt(l['明細ID']), 0)).replace('NT$', '')}</td></tr></tfoot>
+  </table>
+  <div class="sign"><div>承包商簽認章</div><div>主任簽認章</div></div>
+  </body></html>`;
+  const w = window.open('', '_blank');
+  if (!w) { alert('瀏覽器擋下了彈出視窗，請允許後再試'); return; }
+  w.document.write(html); w.document.close(); w.focus();
+  setTimeout(() => w.print(), 300);
+}
+
 function renderContractorsPanel() {
   const list = DATA['發包合約'].filter(c => c['案場ID'] === currentProjectId);
   return `
