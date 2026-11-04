@@ -509,7 +509,7 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'index.html')
 const FRONT = path.join(__dirname, '..');
 app.use('/css', express.static(path.join(FRONT, 'css')));
 app.use('/js', express.static(path.join(FRONT, 'js')));
-['projects.html', 'project.html', 'items.html', 'vendors.html', 'workers.html'].forEach(f =>
+['index.html', 'projects.html', 'project.html', 'items.html', 'vendors.html', 'workers.html'].forEach(f =>
   app.get('/' + f, (req, res) => res.sendFile(path.join(FRONT, f))));
 app.get('/api/health', (req, res) => res.send('太綺戰情室 API 運作中'));
 
