@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>案場詳情｜案場成本控制中心</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<link rel="stylesheet" href="css/room.css">
+</head>
+<body data-page="project">
+<div class="container">
+  <header>
+    <div>
+      <h1>案場成本控制中心 V1</h1>
+      <div class="subtitle">合約管理 · 預估收支 · 發票登記 · 收支追蹤 · 稅務自動計算</div>
+    </div>
+    <div class="actions">
+      <div id="login-area"></div>
+      <button class="btn btn-dark" onclick="exportAllExcel()">📤 匯出 Excel</button>
+      <button class="btn btn-dark" onclick="downloadImportTemplate()">📄 下載匯入模板</button>
+      <button class="btn btn-primary" onclick="document.getElementById('import-file').click()">📥 匯入 Excel</button>
+      <input type="file" id="import-file" accept=".xlsx,.xls" style="display:none" onchange="importExcel(this.files[0]); this.value=''">
+    </div>
+  </header>
+
+  <div id="unauth-banner" class="banner banner-warn" style="display:none">🔒 目前未登入，可瀏覽但不能編輯，敏感欄位（身分證字號）已由伺服器隱藏</div>
+  <div id="conflict-banner" class="banner banner-error" style="display:none"></div>
+  <div id="sync-bar" class="sync-bar">尚未同步</div>
+
+  <div class="tabs">
+    <a class="tab-btn" href="index.html">🏠 儀表板</a>
+    <a class="tab-btn active" href="projects.html">🏗 案場</a>
+    <a class="tab-btn" href="items.html">🧩 工項編碼</a>
+    <a class="tab-btn" href="vendors.html">🏢 廠商主檔</a>
+    <a class="tab-btn" href="workers.html">👷 點工人員</a>
+  </div>
+
+  <!-- 案場詳情頁（完整頁面，取代原本的彈出視窗） -->
+  <div class="tab-panel active" id="tab-detail">
+    <div class="page-bar">
+      <button class="btn btn-dark btn-sm" onclick="closeDetailModal()">← 返回案場列表</button>
+      <h2 id="detail-title" class="page-title">案場詳情</h2>
+    </div>
+    <div id="detail-body"></div>
+  </div>
+
+</div>
+
+<!-- 案場編輯 Modal -->
+<div class="modal-bg" id="project-modal"><div class="modal">
+  <div class="modal-head"><h2 id="project-modal-title">新增案場</h2><button class="btn btn-dark btn-sm" onclick="closeProjectModal()">✕</button></div>
+  <div class="modal-body" id="project-modal-body"></div>
+  <div class="modal-foot"><button class="btn btn-dark" onclick="closeProjectModal()">取消</button><button class="btn btn-success" onclick="saveProject()">💾 儲存</button></div>
+</div></div>
+
+<!-- 廠商編輯 Modal -->
+<div class="modal-bg" id="vendor-modal"><div class="modal" style="max-width:600px">
+  <div class="modal-head"><h2 id="vendor-modal-title">新增廠商</h2><button class="btn btn-dark btn-sm" onclick="closeVendorModal()">✕</button></div>
+  <div class="modal-body" id="vendor-modal-body"></div>
+  <div class="modal-foot"><button class="btn btn-dark" onclick="closeVendorModal()">取消</button><button class="btn btn-success" onclick="saveVendor()">💾 儲存</button></div>
+</div></div>
+
+<!-- 點工人員編輯 Modal -->
+<div class="modal-bg" id="worker-modal"><div class="modal" style="max-width:500px">
+  <div class="modal-head"><h2 id="worker-modal-title">新增點工人員</h2><button class="btn btn-dark btn-sm" onclick="closeWorkerModal()">✕</button></div>
+  <div class="modal-body" id="worker-modal-body"></div>
+  <div class="modal-foot"><button class="btn btn-dark" onclick="closeWorkerModal()">取消</button><button class="btn btn-success" onclick="saveWorker()">💾 儲存</button></div>
+</div></div>
+
+<!-- 通用子項編輯 Modal（合約明細、追加、月度、發票、收款、支出）-->
+<div class="modal-bg" id="sub-modal"><div class="modal" style="max-width:700px">
+  <div class="modal-head"><h2 id="sub-modal-title">編輯</h2><button class="btn btn-dark btn-sm" onclick="closeSubModal()">✕</button></div>
+  <div class="modal-body" id="sub-modal-body"></div>
+  <div class="modal-foot"><button class="btn btn-dark" onclick="closeSubModal()">取消</button><button class="btn btn-success" id="sub-modal-save-btn" onclick="saveSubItem()">💾 儲存</button></div>
+</div></div>
+
+<script src="js/room.js"></script>
+</body>
+</html>
