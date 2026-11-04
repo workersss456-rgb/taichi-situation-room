@@ -505,6 +505,12 @@ app.post('/api/action', async (req, res) => {
 });
 
 app.get('/', (req, res) => res.sendFile(path.join(__dirname, '..', 'index.html')));
+// 前端靜態檔：只開放 css/、js/ 與六個頁面，不開放 database/、server/ 等原始檔
+const FRONT = path.join(__dirname, '..');
+app.use('/css', express.static(path.join(FRONT, 'css')));
+app.use('/js', express.static(path.join(FRONT, 'js')));
+['projects.html', 'project.html', 'items.html', 'vendors.html', 'workers.html'].forEach(f =>
+  app.get('/' + f, (req, res) => res.sendFile(path.join(FRONT, f))));
 app.get('/api/health', (req, res) => res.send('太綺戰情室 API 運作中'));
 
 const PORT = process.env.PORT || 3000;
