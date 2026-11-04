@@ -28,7 +28,7 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD; // 明碼存在 Render 環境
 const TABLES = {
   '案場主檔': {
     idCol: '案場ID', prefix: 'P', pad: 4,
-    cols: ['案場名稱','業主','所屬公司','主約未稅金額','主約稅額','主約含稅金額','預設付款條件','預設付款方式','狀態','開案日期','備註','預收訂金']
+    cols: ['案場名稱','業主','所屬公司','主約未稅金額','主約稅額','主約含稅金額','預設付款條件','預設付款方式','狀態','開案日期','備註','預收訂金','保固到期日']
   },
   '合約明細': {
     idCol: '明細ID', prefix: 'C', pad: 4,
@@ -57,7 +57,7 @@ const TABLES = {
   },
   '工程請款': {
     idCol: '工程請款ID', prefix: 'G', pad: 4,
-    cols: ['案場ID','日期','工程款金額','發票ID','備註']
+    cols: ['案場ID','日期','工程款金額','發票ID','保留款','保固金','備註']
   },
   '預收扣回明細': {
     idCol: '扣回ID', prefix: 'K', pad: 4,
@@ -65,7 +65,7 @@ const TABLES = {
   },
   '支出登記': {
     idCol: '支出ID', prefix: 'E', pad: 4,
-    cols: ['案場ID','類型','日期','廠商ID','發票號碼','項目','金額(含稅)','點工人員ID','工項','數量','小計','代扣所得稅','代扣二代健保','實際支付金額','撥款狀態','撥款日期','已撥金額','備註']
+    cols: ['案場ID','類型','日期','廠商ID','發票號碼','項目','金額(含稅)','點工人員ID','工項','數量','小計','代扣所得稅','代扣二代健保','實際支付金額','撥款狀態','撥款日期','已撥金額','保留款','保固金','發包合約ID','工項代碼','備註']
   },
   '預估收入': {
     idCol: '預估收入ID', prefix: 'F', pad: 4,
@@ -78,6 +78,21 @@ const TABLES = {
   '案場預算': {
     idCol: '案場ID', fixedId: true, // 案場ID 本身就是主鍵，一案場一筆，寫入即 upsert
     cols: ['材料預算','發包預算','點工預算','其他預算','預計完工日','備註']
+  },
+  // 2026-11 新增：工項編碼主檔（代碼為主鍵，寫入即 upsert）
+  '工項主檔': {
+    idCol: '工項代碼', fixedId: true,
+    cols: ['工項名稱','上層代碼','成本分類','單位','備註']
+  },
+  // 案場工項：每案場各工項的預估金額與完成百分比（施工進度用）
+  '案場工項': {
+    idCol: '案場工項ID', prefix: 'Y', pad: 4,
+    cols: ['案場ID','工項代碼','預估金額','完成百分比','更新日期','備註']
+  },
+  // 發包合約：控管發票・發包的估驗累計不可超過合約金額
+  '發包合約': {
+    idCol: '發包合約ID', prefix: 'S', pad: 4,
+    cols: ['案場ID','廠商ID','工項代碼','合約金額','保留款比例','合約日期','備註']
   }
 };
 
@@ -204,6 +219,126 @@ async function prepayUsed(client, pid, excludeId) {
   return Number(rows[0].v) || 0;
 }
 
+// ---------------------------------------------------------------------
+// 2026-11 規則：工項編碼、案場工項（施工進度）、發包合約上限、保留款／保固金
+// ---------------------------------------------------------------------
+// 工項代碼格式（提案版，待 WorkerFlow 編碼表確認後只需改這一行）
+const WBS_CODE_RE = /^TC-WBS-\d{2}(-\d{3})?$/;
+const COST_CATS = ['材料', '工數', '發包', '其他'];
+const nz = v => Number(v) || 0;
+
+// 新增時用傳入資料；修改時把資料庫現有列跟傳入欄位合併，方便檢查完整內容
+async function mergedRow(client, sheetName, idCol, rowId, data) {
+  if (!rowId) return data;
+  const { rows } = await client.query(`SELECT * FROM ${q(sheetName)} WHERE ${q(idCol)} = $1`, [rowId]);
+  if (!rows.length) throw new Error('找不到資料：' + rowId);
+  return Object.assign({}, rows[0], data);
+}
+async function exists(client, sql, params) {
+  const { rows } = await client.query(sql, params);
+  return rows.length > 0;
+}
+
+async function checkRules(client, sheetName, action, rowId, data) {
+  // ---- 工項主檔 ----
+  if (sheetName === '工項主檔') {
+    if (action === 'deleteRow') {
+      const { rows } = await client.query(
+        `SELECT (SELECT count(*) FROM "案場工項" WHERE "工項代碼" = $1)
+              + (SELECT count(*) FROM "支出登記" WHERE "工項代碼" = $1)
+              + (SELECT count(*) FROM "發包合約" WHERE "工項代碼" = $1)
+              + (SELECT count(*) FROM "工項主檔" WHERE "上層代碼" = $1) AS n`, [rowId]);
+      if (Number(rows[0].n) > 0) throw new Error('此工項已被使用或有下層項目，無法刪除');
+      return;
+    }
+    if (action === 'createRow' || action === 'updateRow') {
+      const code = String(action === 'createRow' ? data['工項代碼'] : rowId || '').trim();
+      if (!WBS_CODE_RE.test(code)) throw new Error('工項代碼格式應為 TC-WBS-01 或 TC-WBS-01-001');
+      if (data['上層代碼']) {
+        if (data['上層代碼'] === code) throw new Error('上層代碼不能是自己');
+        if (!(await exists(client, 'SELECT 1 FROM "工項主檔" WHERE "工項代碼" = $1', [data['上層代碼']])))
+          throw new Error('上層代碼不存在：' + data['上層代碼']);
+      }
+      if (data['成本分類'] !== undefined && !COST_CATS.includes(data['成本分類']))
+        throw new Error('成本分類只能是材料／工數／發包／其他');
+    }
+    return;
+  }
+
+  // ---- 案場工項（施工進度）----
+  if (sheetName === '案場工項') {
+    if (action === 'deleteRow') return;
+    const cur = await mergedRow(client, '案場工項', '案場工項ID', rowId, data);
+    if (!(await exists(client, 'SELECT 1 FROM "工項主檔" WHERE "工項代碼" = $1', [cur['工項代碼']])))
+      throw new Error('工項代碼不存在：' + cur['工項代碼']);
+    const pct = nz(cur['完成百分比']);
+    if (pct < 0 || pct > 100) throw new Error('完成百分比需介於 0～100');
+    if (nz(cur['預估金額']) < 0) throw new Error('預估金額不可為負數');
+    const dup = await client.query(
+      `SELECT "案場工項ID" AS id FROM "案場工項"
+        WHERE "案場ID" = $1 AND "工項代碼" = $2 AND ($3::text IS NULL OR "案場工項ID" <> $3)`,
+      [cur['案場ID'], cur['工項代碼'], rowId || null]);
+    if (dup.rowCount) throw new Error('此案場已有這個工項的進度，請直接編輯');
+    return;
+  }
+
+  // ---- 發包合約 ----
+  if (sheetName === '發包合約') {
+    if (action === 'deleteRow') {
+      const { rows } = await client.query('SELECT count(*)::int AS n FROM "支出登記" WHERE "發包合約ID" = $1', [rowId]);
+      if (rows[0].n > 0) throw new Error('此發包合約已有估驗／付款紀錄，請先刪除相關支出');
+      return;
+    }
+    const cur = await mergedRow(client, '發包合約', '發包合約ID', rowId, data);
+    if (!(nz(cur['合約金額']) > 0)) throw new Error('合約金額必須大於 0');
+    const rate = nz(cur['保留款比例']);
+    if (rate < 0 || rate > 100) throw new Error('保留款比例需介於 0～100');
+    if (!(await exists(client, 'SELECT 1 FROM "廠商主檔" WHERE "廠商ID" = $1', [cur['廠商ID']])))
+      throw new Error('請選擇有效廠商');
+    if (cur['工項代碼'] && !(await exists(client, 'SELECT 1 FROM "工項主檔" WHERE "工項代碼" = $1', [cur['工項代碼']])))
+      throw new Error('工項代碼不存在：' + cur['工項代碼']);
+    if (rowId) {
+      const { rows } = await client.query(
+        `SELECT COALESCE(SUM("金額(含稅)"),0) AS v FROM "支出登記" WHERE "發包合約ID" = $1 AND "類型" = '發票-發包'`, [rowId]);
+      if (nz(rows[0].v) > nz(cur['合約金額']))
+        throw new Error('合約金額不可低於已估驗金額（已估驗 ' + nz(rows[0].v) + ' 元）');
+    }
+    return;
+  }
+
+  // ---- 工程請款：保留款＋保固金不可超過該期工程款 ----
+  if (sheetName === '工程請款') {
+    if (action === 'deleteRow') return;
+    const cur = await mergedRow(client, '工程請款', '工程請款ID', rowId, data);
+    const ret = nz(cur['保留款']), war = nz(cur['保固金']);
+    if (ret < 0 || war < 0) throw new Error('保留款／保固金不可為負數');
+    if (ret + war > nz(cur['工程款金額'])) throw new Error('保留款＋保固金不可超過該期工程款金額');
+    return;
+  }
+
+  // ---- 支出登記：工項代碼、保留款、發包合約上限 ----
+  if (sheetName === '支出登記') {
+    if (action === 'deleteRow') return;
+    const cur = await mergedRow(client, '支出登記', '支出ID', rowId, data);
+    if (cur['工項代碼'] && !(await exists(client, 'SELECT 1 FROM "工項主檔" WHERE "工項代碼" = $1', [cur['工項代碼']])))
+      throw new Error('工項代碼不存在：' + cur['工項代碼']);
+    if (nz(cur['保留款']) < 0 || nz(cur['保固金']) < 0) throw new Error('保留款／保固金不可為負數');
+    if (cur['類型'] === '發票-發包' && cur['發包合約ID']) {
+      const { rows } = await client.query('SELECT "案場ID" AS p, "合約金額" AS v FROM "發包合約" WHERE "發包合約ID" = $1', [cur['發包合約ID']]);
+      if (!rows.length) throw new Error('找不到發包合約：' + cur['發包合約ID']);
+      if (rows[0].p !== cur['案場ID']) throw new Error('此發包合約不屬於這個案場');
+      await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', ['contract:' + cur['發包合約ID']]);
+      const used = await client.query(
+        `SELECT COALESCE(SUM("金額(含稅)"),0) AS v FROM "支出登記"
+          WHERE "發包合約ID" = $1 AND "類型" = '發票-發包' AND ($2::text IS NULL OR "支出ID" <> $2)`,
+        [cur['發包合約ID'], rowId || null]);
+      const remaining = nz(rows[0].v) - nz(used.rows[0].v);
+      if (nz(cur['金額(含稅)']) > remaining) throw new Error('超過發包合約金額，剩餘可估驗 ' + remaining + ' 元');
+    }
+    return;
+  }
+}
+
 async function bumpVersion(client) {
   const { rows } = await client.query(`UPDATE "_meta" SET value = (value::int + 1)::text WHERE key='data_version' RETURNING value`);
   return rows[0] ? rows[0].value : '1';
@@ -272,7 +407,11 @@ app.get('/api/data', async (req, res) => {
 app.post('/api/action', async (req, res) => {
   let { action, sheetName, rowId, data: rawData, _clientVersion } = req.body || {};
   let data = rawData;
-  // 內部系統：免登入即可讀寫（依需求取消 JWT 驗證）
+  // 寫入一律需要登入（D6-A）：讀取 /api/data 維持免登入（只遮身分證字號），寫入要帶有效 token
+  const auth = getAuth(req);
+  if (!(auth && auth.authorized)) {
+    return res.status(401).json({ status: 'unauthorized', message: '請先登入管理帳號才能編輯' });
+  }
   const cfg = TABLES[sheetName];
   if (!cfg) return res.status(400).json({ status: 'error', message: '未知的分頁：' + sheetName });
 
@@ -290,6 +429,7 @@ app.post('/api/action', async (req, res) => {
 
     // 預收訂金檢查：扣回不可超過剩餘預收；預收總額不可小於已扣回金額
     await checkPrepay(client, sheetName, action, rowId, data || {});
+    await checkRules(client, sheetName, action, rowId, data || {});
 
     // 新增案場：由後端依「所屬公司＋年份」產生案場ID
     if (sheetName === '案場主檔' && action === 'createRow') {
