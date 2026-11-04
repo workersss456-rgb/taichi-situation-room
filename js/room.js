@@ -2178,6 +2178,10 @@ function periodName() {
   return el ? el.value.trim() : '';
 }
 function setProgPeriod(v) { PROG_PERIOD = v; renderDetailBody(); }
+function rocPeriodNow() {
+  const d = new Date();
+  return (d.getFullYear() - 1911) + '/' + String(d.getMonth() + 1).padStart(2, '0');
+}
 function progRecalc(inp) {
   const price = Number(inp.dataset.price) || 0;
   const amt = (Number(inp.value) || 0) * price;
@@ -2206,7 +2210,7 @@ function renderProgressPanel() {
       <td>${escapeHtml(l['期數'])}</td><td>${escapeHtml(l['內容'])}</td><td>${escapeHtml(l['單位'] || '')}</td>
       <td>${nz(l['比率']).toFixed(2)}%</td><td>${fmt(price)}</td><td>${nz(l['合約數量'])}</td>
       <td>${cum}</td><td>${pctTxt(Math.min(100, cum / qty * 100))}</td>
-      <td><input type="number" step="0.01" min="0" class="cell-input" data-line="${id}" data-price="${price}" value="${pq}" oninput="progRecalc(this)" ${name ? '' : 'disabled'}></td>
+      <td><input type="number" step="0.01" min="0" class="cell-input" data-line="${id}" data-price="${price}" value="${pq}" oninput="progRecalc(this)"></td>
       <td class="prog-amt">${fmt(pq ? pq * price : 0)}</td>
       <td style="white-space:nowrap"><button class="btn btn-dark btn-sm" onclick="openSubEdit('計價明細','${id}')">✎</button> <button class="del-btn" onclick="deleteSubItem('計價明細','${id}')">✕</button></td>
     </tr>`;
@@ -2223,7 +2227,7 @@ function renderProgressPanel() {
     <div class="filter-row">
       <label>期次：</label>
       <select onchange="setProgPeriod(this.value)" style="min-width:140px">${opts}</select>
-      ${PROG_PERIOD === NEW_PERIOD ? `<input type="text" id="prog-newperiod" placeholder="如 114/03" style="min-width:120px">` : ''}
+      ${PROG_PERIOD === NEW_PERIOD ? `<input type="text" id="prog-newperiod" value="${rocPeriodNow()}" placeholder="如 114/03" style="min-width:120px">` : ''}
       <button class="btn btn-primary btn-sm" onclick="saveProgressPeriod()" ${lines.length ? '' : 'disabled'}>💾 儲存本期</button>
       <button class="btn btn-dark btn-sm" onclick="openSubEdit('計價明細',null)">+ 新增項目</button>
       <button class="btn btn-dark btn-sm" onclick="downloadPricingTemplate()">📥 下載計價單模板</button>
