@@ -2226,6 +2226,9 @@ function renderProgressPanel() {
       ${PROG_PERIOD === NEW_PERIOD ? `<input type="text" id="prog-newperiod" placeholder="如 114/03" style="min-width:120px">` : ''}
       <button class="btn btn-primary btn-sm" onclick="saveProgressPeriod()" ${lines.length ? '' : 'disabled'}>💾 儲存本期</button>
       <button class="btn btn-dark btn-sm" onclick="openSubEdit('計價明細',null)">+ 新增項目</button>
+      <button class="btn btn-dark btn-sm" onclick="downloadPricingTemplate()">📥 下載計價單模板</button>
+      <button class="btn btn-dark btn-sm" onclick="document.getElementById('pricing-file').click()">📤 匯入計價單</button>
+      <input type="file" id="pricing-file" accept=".xlsx,.xls" style="display:none" onchange="importPricingForProject(this.files[0]); this.value=''">
       <button class="btn btn-dark btn-sm" onclick="printProgress()">🖨 列印計價單</button>
     </div>
     <div class="sub" style="margin-bottom:8px">施工進度＝Σ(比率 × 累計完成數量÷合約數量)。本期數量填在「本期完成數量」，儲存時系統會檢查不可超過合約數量。</div>
@@ -2264,6 +2267,129 @@ async function saveProgressPeriod() {
   }
   PROG_PERIOD = name;
   await reloadFromCloud(false);
+}
+
+// 計價單：案場範本下載／匯入（只作用於目前案場，不必一筆一筆新增）
+const pnum = v => { if (v === undefined || v === null || String(v).trim() === '') return null; const n = Number(String(v).replace(/,/g, '')); return isNaN(n) ? null : n; };
+function downloadPricingTemplate() {
+  if (typeof XLSX === 'undefined') { alert('Excel 元件載入失敗，請重新整理再試'); return; }
+  const pid = currentProjectId;
+  const proj = DATA['案場主檔'].find(x => x['案場ID'] === pid) || {};
+  const wb = XLSX.utils.book_new();
+  const lineCols = ['明細ID','案場ID','期數','內容','單位','比率','單價','合約數量','工項代碼','排序','備註'];
+  const lineRows = linesOf(pid).map(l => lineCols.map(c => c === '案場ID' ? pid : (l[c] ?? '')));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([lineCols, ...lineRows]), '計價明細');
+  const perCols = ['案場ID','期數','期次','本期數量','備註'];
+  const perRows = DATA['計價期次'].filter(e => e['案場ID'] === pid)
+    .sort((a, b) => String(a['期次']).localeCompare(String(b['期次'])))
+    .map(e => { const l = DATA['計價明細'].find(x => x['明細ID'] === e['明細ID']); return [pid, l ? l['期數'] : '', e['期次'], e['本期數量'], e['備註'] ?? '']; });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([perCols, ...perRows]), '計價期次');
+  const guide = [['計價單模板說明'],
+    ['1. 計價明細：新增項目請把「明細ID」留空；修改既有項目請保留明細ID，不要改動。'],
+    ['2. 單價留空＝比率 × 主約未稅金額（自動算）；同案場比率合計需為 100。'],
+    ['3. 計價期次：期數需對應計價明細的期數；每列是「某項目在某期次的本期數量」，累計不可超過合約數量。'],
+    ['4. 同一個檔案可以同時新增項目與期次，系統會先寫入項目，再登記期次。'],
+    ['5. 匯入只會寫入目前案場，檔案中的案場ID會被忽略。有任何錯誤時整份檔案都不會寫入。']];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet(guide), '說明');
+  XLSX.writeFile(wb, '計價單_' + (proj['案場名稱'] || pid) + '.xlsx');
+}
+
+async function importPricingForProject(file) {
+  if (!file) return;
+  if (typeof XLSX === 'undefined') { alert('Excel 元件載入失敗，請重新整理再試'); return; }
+  if (!isCloudConfigured()) { alert('尚未設定後端網址'); return; }
+  const pid = currentProjectId;
+  const proj = DATA['案場主檔'].find(x => x['案場ID'] === pid);
+  if (!proj) { alert('找不到目前案場'); return; }
+  let wb;
+  try { wb = XLSX.read(await file.arrayBuffer(), { type: 'array' }); }
+  catch (e) { alert('無法讀取檔案：' + e.message); return; }
+  const rowsOf = name => wb.Sheets[name]
+    ? XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: undefined }).filter(r => Object.values(r).some(v => String(v).trim() !== ''))
+    : [];
+  const lineRows = rowsOf('計價明細'), perRows = rowsOf('計價期次');
+  if (!lineRows.length && !perRows.length) { alert('檔案中沒有「計價明細」或「計價期次」的資料。請先按「下載計價單模板」取得正確格式。'); return; }
+
+  const errs = [], linePlan = [];
+  const existingLines = linesOf(pid);
+  let order = existingLines.length;
+  lineRows.forEach((r, i) => {
+    const where = '計價明細 第' + (i + 2) + '列';
+    const code = String(r['期數'] ?? '').trim(), content = String(r['內容'] ?? '').trim();
+    const idIn = String(r['明細ID'] ?? '').trim();
+    if (!code || !content) { errs.push(where + '：期數與內容必填'); return; }
+    const pct = pnum(r['比率']);
+    if (pct === null || pct < 0 || pct > 100) { errs.push(where + '：比率需為 0～100 的數字'); return; }
+    const qty = pnum(r['合約數量']) ?? 1;
+    if (!(qty > 0)) { errs.push(where + '：合約數量必須大於 0'); return; }
+    let price = pnum(r['單價']);
+    if (price === null) price = Math.round(pct / 100 * nz(proj['主約未稅金額']) * 100) / 100;
+    if (!(price >= 0)) { errs.push(where + '：單價不可為負數'); return; }
+    const existing = idIn ? existingLines.find(l => l['明細ID'] === idIn) : null;
+    if (idIn && !existing) { errs.push(where + '：明細ID ' + idIn + ' 不屬於此案場'); return; }
+    if (!idIn && existingLines.some(l => String(l['期數']) === code)) { errs.push(where + '：期數 ' + code + ' 已存在，要修改請保留明細ID'); return; }
+    const sortIn = pnum(r['排序']);
+    linePlan.push({ existing, code, data: {
+      '案場ID': pid, '期數': code, '內容': content, '單位': String(r['單位'] ?? '').trim() || '式',
+      '比率': pct, '單價': price, '合約數量': qty, '合約金額': Math.round(qty * price * 100) / 100,
+      '工項代碼': String(r['工項代碼'] ?? '').trim() || null,
+      '排序': sortIn ?? (existing ? nz(existing['排序']) : ++order),
+      '備註': String(r['備註'] ?? '').trim()
+    } });
+  });
+  // 比率合計檢查（沿用既有項目＋本檔案的項目）
+  const updatedIds = new Set(linePlan.filter(p => p.existing).map(p => p.existing['明細ID']));
+  const total = existingLines.filter(l => !updatedIds.has(l['明細ID'])).reduce((s, l) => s + nz(l['比率']), 0)
+              + linePlan.reduce((s, p) => s + p.data['比率'], 0);
+  if (total > 100 + 1e-9) errs.push('比率合計為 ' + total.toFixed(2) + '%，超過 100%，請調整');
+
+  const pendingCodes = new Set(linePlan.map(p => p.code));
+  const perPlan = [];
+  perRows.forEach((r, i) => {
+    const where = '計價期次 第' + (i + 2) + '列';
+    const code = String(r['期數'] ?? '').trim(), per = String(r['期次'] ?? '').trim();
+    const qty = pnum(r['本期數量']);
+    if (!code || !per || qty === null || qty < 0) { errs.push(where + '：期數、期次、本期數量（≥0）必填'); return; }
+    if (!existingLines.some(l => String(l['期數']) === code) && !pendingCodes.has(code)) { errs.push(where + '：找不到計價項目「期數 ' + code + '」'); return; }
+    perPlan.push({ code, per, qty, note: String(r['備註'] ?? '').trim() });
+  });
+
+  if (errs.length) {
+    alert('匯入檢查有錯誤，整份檔案都不會寫入，請修正後重新匯入：\n\n' + errs.slice(0, 10).join('\n') + (errs.length > 10 ? '\n…另 ' + (errs.length - 10) + ' 筆' : ''));
+    return;
+  }
+  const lineNew = linePlan.filter(p => !p.existing).length;
+  const msg = '計價單匯入預覽（' + (proj['案場名稱'] || pid) + '）\n\n計價明細：新增 ' + lineNew + '、更新 ' + (linePlan.length - lineNew) +
+    '\n計價期次：' + perPlan.length + ' 筆\n\n確定寫入 Neon？此操作無法自動復原。';
+  if (!linePlan.length && !perPlan.length) { alert('沒有可匯入的資料'); return; }
+  if (!confirm(msg)) return;
+
+  let step = '計價明細';
+  try {
+    for (let i = 0; i < linePlan.length; i++) {
+      const p = linePlan[i];
+      setSync('匯入計價明細中… ' + (i + 1) + ' / ' + linePlan.length);
+      if (p.existing) await callApi('updateRow', { sheetName: '計價明細', rowId: p.existing['明細ID'], data: p.data });
+      else await callApi('createRow', { sheetName: '計價明細', data: p.data });
+    }
+    await reloadFromCloud(false); // 第二階段需要新項目的明細ID與單價
+    step = '計價期次';
+    for (let i = 0; i < perPlan.length; i++) {
+      const q = perPlan[i];
+      setSync('匯入計價期次中… ' + (i + 1) + ' / ' + perPlan.length);
+      const line = DATA['計價明細'].find(l => l['案場ID'] === pid && String(l['期數']) === q.code);
+      const e = DATA['計價期次'].find(x => x['明細ID'] === line['明細ID'] && x['期次'] === q.per);
+      const data = { '案場ID': pid, '期次': q.per, '明細ID': line['明細ID'], '本期數量': q.qty,
+        '本期金額': Math.round(q.qty * nz(line['單價']) * 100) / 100, '備註': q.note };
+      if (e) await callApi('updateRow', { sheetName: '計價期次', rowId: e['期次ID'], data });
+      else await callApi('createRow', { sheetName: '計價期次', data });
+    }
+    if (perPlan.length) PROG_PERIOD = perPlan[perPlan.length - 1].per;
+  } catch (err) {
+    alert('匯入中斷（' + step + '階段）：' + err.message + '\n已寫入的資料會保留。請重新下載模板再匯入，已存在的會更新，不會重複。');
+  }
+  await reloadFromCloud(false);
+  alert('計價單匯入完成：計價明細 ' + linePlan.length + ' 筆、計價期次 ' + perPlan.length + ' 筆');
 }
 
 function renderLineForm(r) {
