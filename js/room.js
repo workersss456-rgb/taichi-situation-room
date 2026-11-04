@@ -1133,10 +1133,40 @@ const IMPORT_SPEC = [
     hint:{'類別':'材料／工數／發包／折讓／其他'} },
   { sheet:'案場預算', id:'案場ID', upsert:true, req:['案場ID'], fk:true,
     cols:['案場ID','材料預算','發包預算','點工預算','其他預算','預計完工日','備註'],
-    hint:{'案場ID':'一案場一筆，已存在則覆蓋'} }
+    hint:{'案場ID':'一案場一筆，已存在則覆蓋'} },
+  { sheet:'計價明細', id:'明細ID', req:['案場ID','期數','內容','比率'], fk:true,
+    cols:['明細ID','案場ID','期數','內容','單位','比率','單價','合約數量','工項代碼','排序','備註'],
+    hint:{'明細ID':'新增留空；要更新既有項目才填原 ID','期數':'如 00001（同案場內不可重複）','比率':'百分比，3 代表 3%；同案場合計需為 100','單價':'留空＝比率 × 主約未稅金額（自動計算）','合約數量':'留空預設 1','工項代碼':'TC-WBS-01 或 TC-WBS-01-001，可留空'},
+    prep(out, raw, errs) {
+      out['單位'] = out['單位'] || '式';
+      out['合約數量'] = out['合約數量'] ?? 1;
+      if (out['單價'] === undefined) {
+        const proj = DATA['案場主檔'].find(x => x['案場ID'] === out['案場ID']);
+        if (!proj || !(Number(proj['主約未稅金額']) > 0)) { errs.push('此案場沒有主約未稅金額，無法自動算單價，請填「單價」'); return {}; }
+        out['單價'] = Math.round(Number(out['比率']) / 100 * Number(proj['主約未稅金額']) * 100) / 100;
+      }
+      out['合約金額'] = Math.round(Number(out['合約數量']) * Number(out['單價']) * 100) / 100;
+      // 同案場期數不可重複（與既有資料比對；同檔重複由伺服器擋）
+      const dupe = DATA['計價明細'].find(l => l['案場ID'] === out['案場ID'] && String(l['期數']) === String(out['期數']) && l['明細ID'] !== undefined);
+      if (dupe && !String(raw['明細ID'] ?? '').trim()) errs.push(`期數「${out['期數']}」在此案場已存在（明細ID ${dupe['明細ID']}），如要更新請填明細ID`);
+      return {};
+    } },
+  { sheet:'計價期次', id:'期次ID', req:['案場ID','期數','期次','本期數量'], fk:true,
+    cols:['案場ID','期數','期次','本期數量','備註'],
+    hint:{'期數':'對應計價明細的期數（該項目須先匯入）','期次':'如 114/03','本期數量':'本期完成的數量，累計不可超過合約數量','本期金額':'系統自動算（本期數量 × 單價）'},
+    prep(out, raw, errs) {
+      const line = DATA['計價明細'].find(l => l['案場ID'] === out['案場ID'] && String(l['期數']) === String(raw['期數'] ?? '').trim());
+      if (!line) { errs.push(`找不到計價項目「期數 ${raw['期數']}」，請先匯入計價明細`); return {}; }
+      const pid = line['明細ID'];
+      const exist = DATA['計價期次'].find(e => e['明細ID'] === pid && e['期次'] === String(out['期次']));
+      out['明細ID'] = pid;
+      out['本期金額'] = Math.round(Number(out['本期數量'] || 0) * Number(line['單價'] || 0) * 100) / 100;
+      delete out['期數'];
+      return { id: exist ? exist['期次ID'] : '' };
+    } },
 ];
 const DATE_COLS = new Set(['開案日期','建立日期','日期','發票日期','預計入帳日','完成日期','撥款日期','預計完工日']);
-const NUM_HINT = /金額|預估|小計|稅|數量|已撥|預算|請款|比例|手續費|實際|代扣|序號/;
+const NUM_HINT = /金額|預估|小計|稅|數量|已撥|預算|請款|比例|手續費|實際|代扣|序號|比率|單價|排序|本期/;
 
 function xlDate(v){
   if (typeof v === 'number') return new Date(Math.round((v - 25569) * 86400 * 1000)).toISOString().slice(0,10);
@@ -1196,7 +1226,8 @@ async function importExcel(file){
     rows.forEach((raw, i) => {
       if (!Object.keys(raw).length) return;
       const { out, errs } = normRow(raw, spec);
-      const id = String(raw[spec.id] ?? '').trim();
+      let id = String(raw[spec.id] ?? '').trim();
+      if (spec.prep) { const pr = spec.prep(out, raw, errs); if (pr && pr.id !== undefined) id = pr.id; }
       if (spec.upsert) out[spec.id] = id;
       if (spec.fk && out['案場ID'] !== undefined && !projIds.has(String(out['案場ID']))) errs.push(`案場ID「${out['案場ID']}」不存在`);
       if (!Object.keys(out).length) return;
