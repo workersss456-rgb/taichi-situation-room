@@ -2189,31 +2189,65 @@ function progRecalc(inp) {
   if (cell) cell.textContent = fmt(amt);
 }
 
+let PROG_SHOW_ALL = false;
+function periodKey(p) { const m = /^(\d+)\/(\d+)$/.exec(String(p).trim()); return m ? Number(m[1]) * 100 + Number(m[2]) : 0; }
+function sortedPeriods(pid) { return periodsOf(pid).sort((a, b) => (periodKey(a) - periodKey(b)) || String(a).localeCompare(String(b))); }
+// 到某一期（含）為止的累計：施工進度與累計請款
+function progressUpTo(pid, per) {
+  const k = periodKey(per), lines = linesOf(pid);
+  let constr = 0, billed = 0;
+  lines.forEach(l => {
+    const qty = nz(l['合約數量']) || 1;
+    const es = DATA['計價期次'].filter(e => e['明細ID'] === l['明細ID'] && periodKey(e['期次']) <= k);
+    const cum = es.reduce((s, e) => s + nz(e['本期數量']), 0);
+    constr += nz(l['比率']) * Math.min(1, cum / qty);
+    billed += es.reduce((s, e) => s + nz(e['本期金額']), 0);
+  });
+  return { construction: lines.length ? constr : null, billed };
+}
+
 function renderProgressPanel() {
   const pid = currentProjectId;
   const lines = linesOf(pid);
-  const periods = periodsOf(pid);
+  const periods = sortedPeriods(pid);
   if (!PROG_PERIOD || (!periods.includes(PROG_PERIOD) && PROG_PERIOD !== NEW_PERIOD)) PROG_PERIOD = periods[periods.length - 1] || NEW_PERIOD;
+  const isNew = PROG_PERIOD === NEW_PERIOD;
+  const name = periodName();
   const p = calcProgress(pid);
   const ratioSum = lines.reduce((s, l) => s + nz(l['比率']), 0);
-  const name = periodName();
   const opts = periods.map(x => `<option value="${escapeHtml(x)}" ${x === PROG_PERIOD ? 'selected' : ''}>${escapeHtml(x)}</option>`).join('')
-    + `<option value="${NEW_PERIOD}" ${PROG_PERIOD === NEW_PERIOD ? 'selected' : ''}>＋ 新期次</option>`;
+    + `<option value="${NEW_PERIOD}" ${isNew ? 'selected' : ''}>＋ 新期次</option>`;
   const ratioWarn = lines.length && Math.abs(ratioSum - 100) > 0.001
     ? `<span class="badge badge-warn">比率合計 ${ratioSum.toFixed(2)}%，應為 100%</span>` : '';
-  const rows = lines.map(l => {
-    const id = l['明細ID'], qty = nz(l['合約數量']) || 1, price = nz(l['單價']);
-    const cum = lineCumQty(id);
-    const e = name ? periodEntry(id, name) : null;
-    const pq = e ? nz(e['本期數量']) : '';
+  // 每個項目在「目前期次」的：之前已完成數量、本期數量、剩餘可完成
+  const info = l => {
+    const qty = nz(l['合約數量']) || 1;
+    const e = name ? periodEntry(l['明細ID'], name) : null;
+    const thisQty = e ? nz(e['本期數量']) : 0;
+    const before = lineCumQty(l['明細ID']) - thisQty;
+    return { qty, e, thisQty, before, remain: Math.max(0, qty - before) };
+  };
+  // 預設只顯示：新期次＝還沒完成的項目；既有期次＝該期有登記的項目。已完成且本期沒動到的不顯示
+  const shown = lines.filter(l => PROG_SHOW_ALL || (isNew ? info(l).remain > 1e-9 : !!info(l).e));
+  const rows = shown.map(l => {
+    const id = l['明細ID'], price = nz(l['單價']), i = info(l);
+    const pq = i.e ? nz(i.e['本期數量']) : '';
     return `<tr>
       <td>${escapeHtml(l['期數'])}</td><td>${escapeHtml(l['內容'])}</td><td>${escapeHtml(l['單位'] || '')}</td>
       <td>${nz(l['比率']).toFixed(2)}%</td><td>${fmt(price)}</td><td>${nz(l['合約數量'])}</td>
-      <td>${cum}</td><td>${pctTxt(Math.min(100, cum / qty * 100))}</td>
-      <td><input type="number" step="0.01" min="0" class="cell-input" data-line="${id}" data-price="${price}" value="${pq}" oninput="progRecalc(this)"></td>
+      <td>${i.before}</td><td>${i.remain}</td>
+      <td><input type="number" step="0.01" min="0" max="${i.remain}" class="cell-input" data-line="${id}" data-price="${price}" value="${pq}" oninput="progRecalc(this)"></td>
       <td class="prog-amt">${fmt(pq ? pq * price : 0)}</td>
+      <td>${pctTxt(Math.min(100, (i.before + (Number(pq) || 0)) / i.qty * 100))}</td>
       <td style="white-space:nowrap"><button class="btn btn-dark btn-sm" onclick="openSubEdit('計價明細','${id}')">✎</button> <button class="del-btn" onclick="deleteSubItem('計價明細','${id}')">✕</button></td>
     </tr>`;
+  }).join('');
+  const emptyMsg = isNew ? '所有項目都已完成，沒有需要登記的項目' : '此期次沒有登記項目（可勾選「顯示全部項目」補登）';
+  const cumRows = periods.map(per => {
+    const u = progressUpTo(pid, per);
+    const periodAmt = DATA['計價期次'].filter(e => e['案場ID'] === pid && e['期次'] === per).reduce((s, e) => s + nz(e['本期金額']), 0);
+    const cnt = DATA['計價期次'].filter(e => e['案場ID'] === pid && e['期次'] === per).length;
+    return `<tr><td>${escapeHtml(per)}</td><td>${cnt}</td><td>${fmt(periodAmt)}</td><td>${fmt(u.billed)}</td><td><b>${pctTxt(u.construction)}</b></td></tr>`;
   }).join('');
   return `
     <div style="margin-bottom:10px">
@@ -2227,7 +2261,8 @@ function renderProgressPanel() {
     <div class="filter-row">
       <label>期次：</label>
       <select onchange="setProgPeriod(this.value)" style="min-width:140px">${opts}</select>
-      ${PROG_PERIOD === NEW_PERIOD ? `<input type="text" id="prog-newperiod" value="${rocPeriodNow()}" placeholder="如 114/03" style="min-width:120px">` : ''}
+      ${isNew ? `<input type="text" id="prog-newperiod" value="${rocPeriodNow()}" placeholder="如 114/03" style="min-width:120px">` : ''}
+      <label style="display:inline-flex;gap:6px;align-items:center;margin:0"><input type="checkbox" ${PROG_SHOW_ALL ? 'checked' : ''} onchange="PROG_SHOW_ALL=this.checked;renderDetailBody()" style="width:auto"> 顯示全部項目</label>
       <button class="btn btn-primary btn-sm" onclick="saveProgressPeriod()" ${lines.length ? '' : 'disabled'}>💾 儲存本期</button>
       <button class="btn btn-dark btn-sm" onclick="openSubEdit('計價明細',null)">+ 新增項目</button>
       <button class="btn btn-dark btn-sm" onclick="downloadPricingTemplate()">📥 下載計價單模板</button>
@@ -2235,10 +2270,15 @@ function renderProgressPanel() {
       <input type="file" id="pricing-file" accept=".xlsx,.xls" style="display:none" onchange="importPricingForProject(this.files[0]); this.value=''">
       <button class="btn btn-dark btn-sm" onclick="printProgress()">🖨 列印計價單</button>
     </div>
-    <div class="sub" style="margin-bottom:8px">施工進度＝Σ(比率 × 累計完成數量÷合約數量)。本期數量填在「本期完成數量」，儲存時系統會檢查不可超過合約數量。</div>
+    <div class="sub" style="margin-bottom:8px">${isNew ? '新期次只列出「還沒完成」的項目，已完成的不會再出現。' : '此期次只列出本期有登記的項目。'}施工進度＝Σ(比率 × 累計完成數量÷合約數量)。</div>
     <div style="overflow-x:auto"><table id="prog-table">
-      <thead><tr><th>期數</th><th>內容</th><th>單位</th><th>比率</th><th>單價</th><th>合約數量</th><th>累計數量</th><th>累計完成</th><th>本期完成數量</th><th>本期金額</th><th>操作</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="11" class="empty">尚無計價項目。可按「+ 新增項目」，或由管理者匯入計價單種子資料。</td></tr>'}</tbody>
+      <thead><tr><th>期數</th><th>內容</th><th>單位</th><th>比率</th><th>單價</th><th>合約數量</th><th>之前已完成</th><th>剩餘可完成</th><th>本期完成數量</th><th>本期金額</th><th>完成後累計</th><th>操作</th></tr></thead>
+      <tbody>${rows || `<tr><td colspan="12" class="empty">${emptyMsg}</td></tr>`}</tbody>
+    </table></div>
+    <div class="sec-title" style="margin-top:16px">各期累計（每期請款後的總工進）</div>
+    <div style="overflow-x:auto"><table>
+      <thead><tr><th>期次</th><th>登記項目數</th><th>本期請款金額</th><th>累計請款金額</th><th>累計施工進度</th></tr></thead>
+      <tbody>${cumRows || '<tr><td colspan="5" class="empty">尚無期次</td></tr>'}</tbody>
     </table></div>`;
 }
 
