@@ -781,17 +781,14 @@ function renderDetailBody() {
 
   // 已移除分頁（資料與 Excel 匯入匯出保留，函式保留可隨時還原）：📅 月度請款
   const subtabs = [
-    { key: 'contract', label: '📋 合約明細+追加' },
-    { key: 'budget', label: '🧮 預算控制' },
-    { key: 'estimate', label: '🎯 每月預估收支' },
-    { key: 'ledger', label: '💰 收付總表' },
-    { key: 'ar', label: '💵 應收登記' },
-    { key: 'ap', label: '💸 應付登記' },
-    { key: 'prepay', label: '💠 預收扣回' },
+    { key: 'contract', label: '📋 合約' },
+    { key: 'plan', label: '🧮 預算與預估' },
     { key: 'progress', label: '🏗 施工進度' },
-    { key: 'contractors', label: '📑 發包合約' },
-    { key: 'retention', label: '🧱 保留款' }
+    { key: 'money', label: '💰 收付' }
   ];
+  // 舊頁籤 key 對應到新頁籤，避免舊狀態造成空白頁
+  const LEGACY_TAB = { budget: 'plan', estimate: 'plan', ledger: 'money', ar: 'money', ap: 'money', prepay: 'money', retention: 'money', contractors: 'contract' };
+  if (LEGACY_TAB[currentDetailSubtab]) currentDetailSubtab = LEGACY_TAB[currentDetailSubtab];
   if (!subtabs.some(t => t.key === currentDetailSubtab)) currentDetailSubtab = 'contract';
 
   const now = new Date();
@@ -1248,19 +1245,22 @@ function renderWorkForm(r) {
 }
 
 function renderSubpanelContent(name) {
-  if (name === 'contract') return renderContractPanel();
-  if (name === 'budget') return renderBudgetPanel();
-  if (name === 'estimate') return renderEstimatePanel();
-  if (name === 'ledger') return renderLedgerPanel();
-  if (name === 'ar') return renderArPanel();
-  if (name === 'ap') return renderExpensePanel();
-  if (name === 'prepay') return renderPrepayPanel();
+  if (name === 'contract') return renderContractPanel() + '<div style="margin-top:16px">' + renderContractorsPanel() + '</div>';
+  if (name === 'plan') return renderBudgetPanel() + '<div style="margin-top:16px">' + renderEstimatePanel() + '</div>';
   if (name === 'progress') return renderProgressPanel();
-  if (name === 'contractors') return renderContractorsPanel();
-  if (name === 'retention') return renderRetentionPanel();
+  if (name === 'money') return renderMoneyPanel();
   return '';
 }
 
+// 收付：上方是收付總表（唯讀＋匯入匯出）；下方是各類登記入口（預設收合，需要時展開）
+function renderMoneyPanel() {
+  const sec = (title, body) => `<details style="margin-top:10px"><summary style="cursor:pointer;font-weight:600;padding:8px 0">${title}</summary><div style="margin-top:8px">${body}</div></details>`;
+  return renderLedgerPanel()
+    + sec('💵 應收登記（工程請款／發票／收款）', renderArPanel())
+    + sec('💸 應付登記（支出）', renderExpensePanel())
+    + sec('💠 預收扣回', renderPrepayPanel())
+    + sec('🧱 保留款', renderRetentionPanel());
+}
 
 
 // -- 合約明細+追加 ---
@@ -1390,7 +1390,7 @@ const IMPORT_SPEC = [
     cols:['案場ID','材料預算','發包預算','點工預算','其他預算','預計完工日','備註'],
     hint:{'案場ID':'一案場一筆，已存在則覆蓋'} },
   { sheet:'計價明細', id:'明細ID', req:['案場ID','期數','內容','比率'], fk:true,
-    cols:['明細ID','案場ID','期數','內容','單位','比率','單價','合約數量','工項代碼','排序','備註'],
+    cols:['明細ID','案場ID','期數','內容','樓層','單位','比率','單價','合約數量','工項代碼','排序','備註'],
     hint:{'明細ID':'新增留空；要更新既有項目才填原 ID','期數':'如 00001（同案場內不可重複）','比率':'百分比，3 代表 3%；同案場合計需為 100','單價':'留空＝比率 × 主約未稅金額（自動計算）','合約數量':'留空預設 1','工項代碼':'TC-WBS-01 或 TC-WBS-01-001，可留空'},
     prep(out, raw, errs) {
       out['單位'] = out['單位'] || '式';
@@ -2178,6 +2178,7 @@ async function saveSubItem() {
     const priceIn = document.getElementById('sf-price').value;
     data['期數'] = document.getElementById('sf-period-no').value.trim();
     data['內容'] = document.getElementById('sf-content').value.trim();
+    data['樓層'] = document.getElementById('sf-floor').value.trim() || null;
     data['單位'] = document.getElementById('sf-unit').value.trim() || '式';
     data['比率'] = pct;
     data['單價'] = priceIn === '' ? Math.round(pct / 100 * nz(proj['主約未稅金額']) * 100) / 100 : Number(priceIn);
@@ -2488,7 +2489,7 @@ function renderProgressPanel() {
     const id = l['明細ID'], price = nz(l['單價']), i = info(l);
     const pq = i.e ? nz(i.e['本期數量']) : '';
     return `<tr>
-      <td>${escapeHtml(l['期數'])}</td><td>${escapeHtml(l['內容'])}</td><td>${escapeHtml(l['單位'] || '')}</td>
+      <td>${escapeHtml(l['期數'])}</td><td>${escapeHtml(l['內容'])}</td><td>${escapeHtml(l['樓層'] || '')}</td><td>${escapeHtml(l['單位'] || '')}</td>
       <td>${nz(l['比率']).toFixed(2)}%</td><td>${fmt(price)}</td><td>${nz(l['合約數量'])}</td>
       <td>${i.before}</td><td>${i.remain}</td>
       <td><input type="number" step="0.01" min="0" max="${i.remain}" class="cell-input" data-line="${id}" data-price="${price}" value="${pq}" oninput="progRecalc(this)"></td>
@@ -2527,7 +2528,7 @@ function renderProgressPanel() {
     </div>
     <div class="sub" style="margin-bottom:8px">${isNew ? '新期次只列出「還沒完成」的項目，已完成的不會再出現。' : '此期次只列出本期有登記的項目。'}施工進度＝Σ(比率 × 累計完成數量÷合約數量)。</div>
     <div style="overflow-x:auto"><table id="prog-table">
-      <thead><tr><th>期數</th><th>內容</th><th>單位</th><th>比率</th><th>單價</th><th>合約數量</th><th>之前已完成</th><th>剩餘可完成</th><th>本期完成數量</th><th>本期金額</th><th>完成後累計</th><th>操作</th></tr></thead>
+      <thead><tr><th>期數</th><th>內容</th><th>樓層</th><th>單位</th><th>比率</th><th>單價</th><th>合約數量</th><th>之前已完成</th><th>剩餘可完成</th><th>本期完成數量</th><th>本期金額</th><th>完成後累計</th><th>操作</th></tr></thead>
       <tbody>${rows || `<tr><td colspan="12" class="empty">${emptyMsg}</td></tr>`}</tbody>
     </table></div>
     <div class="sec-title" style="margin-top:16px">各期累計（每期請款後的總工進）</div>
@@ -2575,7 +2576,7 @@ function downloadPricingTemplate() {
   const pid = currentProjectId;
   const proj = DATA['案場主檔'].find(x => x['案場ID'] === pid) || {};
   const wb = XLSX.utils.book_new();
-  const lineCols = ['明細ID','案場ID','期數','內容','單位','比率','單價','合約數量','工項代碼','排序','備註'];
+  const lineCols = ['明細ID','案場ID','期數','內容','樓層','單位','比率','單價','合約數量','工項代碼','排序','備註'];
   const lineRows = linesOf(pid).map(l => lineCols.map(c => c === '案場ID' ? pid : (l[c] ?? '')));
   XLSX.utils.book_append_sheet(wb, XLSX.utils.aoa_to_sheet([lineCols, ...lineRows]), '計價明細');
   const perCols = ['案場ID','期數','期次','本期數量','備註'];
@@ -2695,6 +2696,7 @@ function renderLineForm(r) {
   return `<div class="form-grid">
     <div><label>期數 *（如 00094）</label><input type="text" id="sf-period-no" value="${escapeHtml(r['期數'] || '')}"></div>
     <div class="half"><label>內容 *</label><input type="text" id="sf-content" value="${escapeHtml(r['內容'] || '')}"></div>
+    <div><label>樓層（選填，如 5F、R1F）</label><input type="text" id="sf-floor" value="${escapeHtml(r['樓層'] || '')}"></div>
     <div><label>單位</label><input type="text" id="sf-unit" value="${escapeHtml(r['單位'] || '式')}"></div>
     <div><label>比率(%) *</label><input type="number" step="0.01" id="sf-ratio" value="${r['比率'] ?? ''}"></div>
     <div><label>單價（留空＝比率×主約未稅金額）</label><input type="number" step="0.01" id="sf-price" value="${r['單價'] ?? ''}"></div>
@@ -2714,7 +2716,7 @@ function printProgress() {
     const e = periodName() ? periodEntry(l['明細ID'], periodName()) : null;
     const pq = e ? nz(e['本期數量']) : 0, pa = e ? nz(e['本期金額']) : 0;
     periodAmt += pa; contractAmt += nz(l['合約金額']);
-    return `<tr><td>${escapeHtml(l['期數'])}</td><td>${escapeHtml(l['內容'])}</td><td>${escapeHtml(l['單位'] || '')}</td>
+    return `<tr><td>${escapeHtml(l['期數'])}</td><td>${escapeHtml(l['內容'])}</td><td>${escapeHtml(l['樓層'] || '')}</td><td>${escapeHtml(l['單位'] || '')}</td>
       <td class="r">${nz(l['比率']).toFixed(2)}%</td><td class="r">${fmt(l['單價']).replace('NT$', '')}</td><td class="r">${nz(l['合約數量'])}</td>
       <td class="r">${pq || ''}</td><td class="r">${pa ? fmt(pa).replace('NT$', '') : ''}</td>
       <td class="r">${lineCumQty(l['明細ID'])}</td><td class="r">${fmt(lineCumAmt(l['明細ID'])).replace('NT$', '')}</td></tr>`;
@@ -2742,7 +2744,7 @@ function printProgress() {
     <div>承 包 商：太綺水電工程有限公司</div><div>請款期間：${escapeHtml(name)}</div>
     <div>工程名稱：${escapeHtml(proj['案場名稱'] || '')}</div><div>合約未稅總額：${fmt(proj['主約未稅金額']).replace('NT$', '')}</div>
   </div>
-  <table><thead><tr><th>期數</th><th>內容</th><th>單位</th><th>比率</th><th>單價</th><th>合約數量</th><th>本期數量</th><th>本期金額</th><th>累計數量</th><th>累計金額</th></tr></thead>
+  <table><thead><tr><th>期數</th><th>內容</th><th>樓層</th><th>單位</th><th>比率</th><th>單價</th><th>合約數量</th><th>本期數量</th><th>本期金額</th><th>累計數量</th><th>累計金額</th></tr></thead>
   <tbody>${trs}</tbody>
   <tfoot><tr><td colspan="7" class="r">合 計</td><td class="r">${fmt(periodAmt).replace('NT$', '')}</td><td></td><td class="r">${fmt(lines.reduce((s, l) => s + lineCumAmt(l['明細ID']), 0)).replace('NT$', '')}</td></tr></tfoot>
   </table>

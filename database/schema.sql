@@ -307,6 +307,7 @@ CREATE TABLE IF NOT EXISTS "計價明細" (
   "案場ID"   TEXT REFERENCES "案場主檔"("案場ID") ON DELETE CASCADE,
   "期數"     TEXT,              -- 計價單期數（00001…）
   "內容"     TEXT,
+  "樓層"     TEXT,              -- 樓層（如 5F、R1F，選填）
   "單位"     TEXT,
   "比率"     NUMERIC DEFAULT 0, -- 佔合約總額的百分比（%）
   "單價"     NUMERIC DEFAULT 0, -- = 比率 ÷ 100 × 合約未稅總額
