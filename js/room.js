@@ -1000,13 +1000,18 @@ function ledgerRows(pid) {
   DATA['收款登記'].filter(r => r['案場ID'] === pid).forEach(r => {
     const amt = Number(r['金額']) || 0;
     const t = r['收款類型'] || '工程款';
+    const cleared = !['到期', '退票'].includes(r['狀態'] || '');  // 票據未兌現前不算收到
     const base = { date: toDateStr(r['日期']), order: 2, sheet: '收款登記', id: r['收款ID'] || '',
       method: r['方式'] || '', status: r['狀態'] || '', amount: amt,
       ref: (r['收款ID'] || '') + (r['對應發票ID'] ? '｜發票 ' + r['對應發票ID'] : ''),
-      cashIn: amt, cashOut: 0, note: [r['方式'], r['狀態'], r['備註']].filter(Boolean).join('／') };
+      cashIn: cleared ? amt : 0, cashOut: 0, note: [r['方式'], r['狀態'], r['備註']].filter(Boolean).join('／') };
+    if (!cleared) {
+      rows.push({ ...base, label: t + '（票據未兌現）', importable: true, kind: 'pending', receivable: 0, held: 0, prepay: 0 });
+      return;
+    }
     if (t === '預收訂金') rows.push({ ...base, label: '預收訂金收款', importable: true, kind: 'prepay_in', receivable: 0, held: 0, prepay: amt });
     else if (t === '保留款回收' || t === '保固金回收') rows.push({ ...base, label: t + '（業主退回）', importable: true, kind: 'held_in', receivable: 0, held: -amt, prepay: 0 });
-    else rows.push({ ...base, label: '工程款收款', importable: true, kind: 'cash_in', receivable: -amt, held: 0, prepay: 0 });
+    else rows.push({ ...base, label: '工程款收款', importable: true, kind: 'cash_in', receivable: -(amt + (Number(r['手續費']) || 0)), held: 0, prepay: 0 });  // 手續費由銀行扣除，同樣沖銷應收
   });
 
   DATA['預收扣回明細'].filter(r => r['案場ID'] === pid).forEach(r => {
@@ -1368,6 +1373,9 @@ const IMPORT_SPEC = [
   { sheet:'月度請款', id:'請款ID', req:['案場ID','年月'], fk:true,
     cols:['請款ID','案場ID','年月','預估請款金額','收入方式','現金比例','支票比例','備註'],
     hint:{'年月':'YYYY-MM','收入方式':'現金／支票／混合','現金比例':'百分比數字，例如 60'} },
+  { sheet:'工程請款', id:'工程請款ID', req:['案場ID','日期','工程款金額'], fk:true,
+    cols:['工程請款ID','案場ID','日期','工程款金額','發票ID','保留款','保固金','備註'],
+    hint:{'工程款金額':'含稅；本期請款毛額（扣款另以扣抵列記錄）','發票ID':'可留空'} },
   { sheet:'發票登記', id:'發票ID', req:['案場ID','金額(含稅)'], fk:true,
     cols:['發票ID','案場ID','類型','發票形式','統一編號','發票日期','發票號碼','項目','金額(含稅)','備註'],
     hint:{'類型':'請款／預收／折讓／扣抵','發票形式':'三聯式發票／電子發票'} },
