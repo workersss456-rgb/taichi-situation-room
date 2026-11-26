@@ -2,7 +2,8 @@
 // 全域狀態
 // =====================================================================
 // 👉 部署 Render 後端完成後，把網址貼在這裡（結尾不要加斜線）
-const API_BASE_URL = "https://taichi-situation-room.onrender.com";
+// 同源：前端由同一個後端服務送出，直接用目前網址當 API 位址（本機開檔時才退回預設網址）
+const API_BASE_URL = (location.protocol.startsWith("http") ? location.origin : "https://taichi-situation-room.onrender.com");
 const AUTH_KEY = 'cost_center_auth_v1';
 
 let isAuthorized = false, authToken = null; // 讀取免登入；寫入需登入
